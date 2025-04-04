@@ -1,0 +1,8 @@
+# Ignore Git-related files
+.git
+.gitignore
+.gitmodules
+
+# Ignore build files
+build/
+
