@@ -14,7 +14,10 @@ This initializes the pico-sdk git submodule and modifys one of the CMakeLists fi
 ## Setting up the container
 ---
 First make sure you install docker\
-You can do this on Ubuntu with the command ```bash sudo apt install docker```
+You can do this on Ubuntu with the command 
+```bash
+sudo apt install docker
+```
 Once docker is intalled, build the container by running
  ```bash
  sudo docker build -t shoulder_shield_pico2w .
