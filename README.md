@@ -1,6 +1,10 @@
 # ShoulderShield
 ## First Steps after Cloning
-After cloning, run the following commands to prepare the build:
+After cloning, enter the project directory with
+```bash
+cd Shoulder_Shield
+```
+Next run the following commands to prepare the build:
 
 ```bash
 git submodule update --init --recursive
