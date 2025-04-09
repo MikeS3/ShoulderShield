@@ -1,4 +1,16 @@
 # ShoulderShield
+How to set up the Shoulder Cuff Injury Prevention device
+
+## Clone the GitHub repository
+Input the following commands
+```bash
+cd ~
+```
+
+```bash
+git clone https://github.com/MikeS3/ShoulderShield
+```
+
 ## First Steps after Cloning
 After cloning, enter the project directory with
 ```bash
@@ -20,18 +32,19 @@ This initializes the pico-sdk git submodule and modifys one of the CMakeLists fi
 First make sure you install docker\
 You can do this on Ubuntu with the command 
 ```bash
-sudo apt install docker
+sudo snap install docker
 ```
+
 Once docker is intalled, build the container by running
  ```bash
- sudo docker build -t shoulder_shield_pico2w .
+sudo docker build -t shoulder_shield_pico2w .
 ```
 ### Running the docker container
 After building the container, in the base directory of shoulder_shield run
 ```bash
-docker run -it --rm -v "$PWD":/app -w /app shoulder_shield_pico2w bash
+sudo docker run -it --rm -v "$PWD":/app -w /app shoulder_shield_pico2w bash
 ```
-You may need to run with root permissions\
+
 Inside the container create a build directory and enter it with
  ```bash 
 mkdir build
