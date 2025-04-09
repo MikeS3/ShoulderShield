@@ -30,10 +30,13 @@ Inside the container create a build directory and enter it with
 mkdir build
 cd build
 ```
-Next run Cmake with the correct parameters for the pico2w with ```bash
-cmake -DPICO_BOARD=pico2_w ..```
+Next run Cmake with the correct parameters for the pico2w with
+ ```bash
+cmake -DPICO_BOARD=pico2_w ..
+```
 
-Finally build with ```bash 
+Finally build with
+ ```bash 
 make
 ```
 The generated uf2 files will appear in a directory titled src
