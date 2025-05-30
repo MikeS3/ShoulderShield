@@ -14,7 +14,7 @@ git clone https://github.com/MikeS3/ShoulderShield
 ## First Steps after Cloning
 After cloning, enter the project directory with
 ```bash
-cd Shoulder_Shield
+cd ShoulderShield
 ```
 Next run the following commands to prepare the build:
 
@@ -60,3 +60,4 @@ Finally build with
 make
 ```
 The generated uf2 files will appear in a directory titled src
+make bno08x_example
