@@ -8,6 +8,7 @@
 
 #include "Pico_BNO08x.h"
 #include <string.h>
+#include <stdio.h>
 
 // Global variables for HAL callbacks - now arrays for multiple IMUs
 static Pico_BNO08x_t *current_imus[MAX_IMU_COUNT] = {NULL, NULL, NULL};
@@ -270,7 +271,7 @@ bool multi_bno08x_add_spi_imu(Multi_BNO08x_t *multi_bno, uint8_t imu_index,
         return false;
     }
     
-    multi_bno08x->active_imu_count++;
+    multi_bno->active_imu_count++;
     return true;
 }
 
