@@ -60,4 +60,12 @@ void pico_bno08x_service(Pico_BNO08x_t *bno) {
 }
 
 bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
-    return bno08x_event
+    if (bno->event_queue.head == bno->event_queue.tail) {
+        return false; // Queue is empty
+    }
+
+    *value = bno->event_queue.queue[bno->event_queue.tail];
+    bno->event_queue.tail = (bno->event_queue.tail + 1) % BNO08X_EVENT_QUEUE_SIZE;
+    return true;
+}
+
