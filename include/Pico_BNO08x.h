@@ -51,7 +51,16 @@ void pico_bno08x_service(Pico_BNO08x_t *bno);
 bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value);
 
 // Multi-IMU helpers
-void multi_bno08x_service_all(Pico_BNO08x_t *bno_array, uint8_t count);
-bool multi_bno08x_get_sensor_event(Pico_BNO08x_t *bno_array, uint8_t index, sh2_SensorValue_t *value);
+bool multi_bno08x_init(Multi_BNO08x_t *multi);
+bool multi_bno08x_add_spi_imu(Multi_BNO08x_t *multi, uint8_t index, spi_inst_t *spi_port,
+                              uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
+                              uint8_t cs_pin, uint8_t int_pin, uint8_t reset_pin, uint32_t spi_speed);
+
+void multi_bno08x_service_all(Multi_BNO08x_t *multi);
+bool multi_bno08x_get_sensor_event(Multi_BNO08x_t *multi, uint8_t imu_index, sh2_SensorValue_t *value);
+bool multi_bno08x_is_imu_initialized(Multi_BNO08x_t *multi, uint8_t imu_index);
+uint8_t multi_bno08x_get_imu_count(Multi_BNO08x_t *multi);
+void multi_bno08x_enable_all_reports(Multi_BNO08x_t *multi, uint8_t sensorId, uint32_t interval_us);
+
 
 #endif
