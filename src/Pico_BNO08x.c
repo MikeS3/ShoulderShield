@@ -128,15 +128,4 @@ uint8_t multi_bno08x_get_imu_count(Multi_BNO08x_t *multi) {
     
     return multi->imu_count;
 }
-
-void multi_bno08x_enable_all_reports(Multi_BNO08x_t *multi, uint8_t sensorId, uint32_t interval_us) {
-    if (!multi) return;
-    
-    for (uint8_t i = 0; i < multi->imu_count; i++) {
-        if (multi->imus[i].initialized) {
-            // TODO: Implement sensor report enabling for each IMU
-            // This would typically call sh2_setSensorConfig() for each IMU
-            // For now, this is a stub
-        }
-    }
 }
