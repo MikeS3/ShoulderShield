@@ -5,6 +5,8 @@
 #include "Pico_BNO08x.h"
 #include <string.h>
 
+#define MAX_BNO08X_IMUS 3
+
 static bool bno08x_event_queue_push(bno08x_event_queue_t *queue, sh2_SensorValue_t *val) {
     uint8_t next = (queue->head + 1) % BNO08X_EVENT_QUEUE_SIZE;
     if (next == queue->tail) return false; // Queue full
@@ -22,16 +24,22 @@ static bool bno08x_event_queue_pop(bno08x_event_queue_t *queue, sh2_SensorValue_
 
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
                            uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
-                           uint8_t cs_pin, uint8_t int_pin, uint32_t spi_speed) {
+                           uint8_t cs_pin, uint8_t int_pin, uint8_t reset_pin,
+                           uint32_t spi_speed) {
     bno->spi_port = spi_port;
     bno->cs_pin = cs_pin;
     bno->int_pin = int_pin;
+    bno->reset_pin = reset_pin;
     bno->spi_speed = spi_speed;
     bno->interface_type = INTERFACE_SPI;
 
     gpio_init(cs_pin);
     gpio_set_dir(cs_pin, GPIO_OUT);
     gpio_put(cs_pin, 1);
+
+    gpio_init(reset_pin);
+    gpio_set_dir(reset_pin, GPIO_OUT);
+    gpio_put(reset_pin, 1);
 
     spi_init(spi_port, spi_speed);
     gpio_set_function(miso_pin, GPIO_FUNC_SPI);
@@ -40,8 +48,8 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
 
     memset(&bno->event_queue, 0, sizeof(bno->event_queue));
 
-    // TODO: Implement HAL init for BNO08x SH2 with SPI here
-    return true; // Stubbed for now
+    // TODO: Initialize BNO08x hardware & sh2 HAL for SPI
+    return true; // stub for now
 }
 
 void pico_bno08x_service(Pico_BNO08x_t *bno) {
@@ -52,15 +60,4 @@ void pico_bno08x_service(Pico_BNO08x_t *bno) {
 }
 
 bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
-    return bno08x_event_queue_pop(&bno->event_queue, value);
-}
-
-void multi_bno08x_service_all(Pico_BNO08x_t *bno_array, uint8_t count) {
-    for (uint8_t i = 0; i < count; i++) {
-        pico_bno08x_service(&bno_array[i]);
-    }
-}
-
-bool multi_bno08x_get_sensor_event(Pico_BNO08x_t *bno_array, uint8_t index, sh2_SensorValue_t *value) {
-    return pico_bno08x_get_sensor_event(&bno_array[index], value);
-}
+    return bno08x_event
