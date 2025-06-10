@@ -11,6 +11,12 @@
 #include "sh2_err.h"
 
 #define BNO08X_EVENT_QUEUE_SIZE 16
+#define MAX_BNO08X_IMUS 3
+
+typedef struct {
+    Pico_BNO08x_t imus[MAX_BNO08X_IMUS];
+    uint8_t imu_count;
+} Multi_BNO08x_t;
 
 typedef enum {
     INTERFACE_NONE,
