@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
 #include "sh2.h"
@@ -12,11 +13,6 @@
 
 #define BNO08X_EVENT_QUEUE_SIZE 16
 #define MAX_BNO08X_IMUS 3
-
-typedef struct {
-    Pico_BNO08x_t imus[MAX_BNO08X_IMUS];
-    uint8_t imu_count;
-} Multi_BNO08x_t;
 
 typedef enum {
     INTERFACE_NONE,
@@ -35,14 +31,23 @@ typedef struct {
     spi_inst_t *spi_port;
     uint8_t cs_pin;
     uint8_t int_pin;
+    uint8_t reset_pin;
     uint32_t spi_speed;
 
     bno08x_interface_t interface_type;
 
     bno08x_event_queue_t event_queue;
     sh2_Hal_t hal;
+
+    bool initialized;
 } Pico_BNO08x_t;
 
+typedef struct {
+    Pico_BNO08x_t imus[MAX_BNO08X_IMUS];
+    uint8_t imu_count;
+} Multi_BNO08x_t;
+
+// Single IMU SPI interface
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
                            uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
                            uint8_t cs_pin, uint8_t int_pin, uint32_t spi_speed);
@@ -62,5 +67,4 @@ bool multi_bno08x_is_imu_initialized(Multi_BNO08x_t *multi, uint8_t imu_index);
 uint8_t multi_bno08x_get_imu_count(Multi_BNO08x_t *multi);
 void multi_bno08x_enable_all_reports(Multi_BNO08x_t *multi, uint8_t sensorId, uint32_t interval_us);
 
-
-#endif
+#endif // _PICO_BNO08X_H
