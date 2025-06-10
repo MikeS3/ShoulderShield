@@ -50,7 +50,8 @@ typedef struct {
 // Single IMU SPI interface
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
                            uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
-                           uint8_t cs_pin, uint8_t int_pin, uint32_t spi_speed);
+                           uint8_t cs_pin, uint8_t int_pin, uint8_t reset_pin, uint32_t spi_speed);
+
 
 void pico_bno08x_service(Pico_BNO08x_t *bno);
 bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value);
