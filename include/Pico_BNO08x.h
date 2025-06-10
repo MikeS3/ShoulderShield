@@ -1,5 +1,5 @@
-#ifndef _PICO_BNO08X_H
-#define _PICO_BNO08X_H
+#ifndef PICO_BNO08X_H
+#define PICO_BNO08X_H
 
 #include <stdint.h>
 #include <stdbool.h>
