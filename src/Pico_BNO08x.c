@@ -1,237 +1,254 @@
-/*
- * Pico_BNO08x.c - Multi-IMU support for BNO08x on Raspberry Pi Pico
- * This version includes proper initialization and basic sensor simulation
+/*!
+ *  @file Pico_BNO08x_multi.c
+ *
+ *  SPI‑only driver for multiple BNO08x on Raspberry Pi Pico
+ *  Based on the old single‑IMU code you verified, minus interface_type.
  */
 
 #include "Pico_BNO08x.h"
 #include <string.h>
-#include <math.h>
+#include "hardware/gpio.h"
+#include "hardware/spi.h"
 
-#define MAX_BNO08X_IMUS 3
+// Global pointer to whichever IMU is “active” for HAL callbacks
+static Pico_BNO08x_t *current_bno = NULL;
+static sh2_SensorValue_t *sensor_value = NULL;
 
-// Queue management functions
-static bool bno08x_event_queue_push(bno08x_event_queue_t *queue, sh2_SensorValue_t *val) {
-    uint8_t next = (queue->head + 1) % BNO08X_EVENT_QUEUE_SIZE;
-    if (next == queue->tail) return false; // Queue full
-    queue->queue[queue->head] = *val;
-    queue->head = next;
+// Forward declarations
+static bool     pico_bno08x_init_common(Pico_BNO08x_t *bno);
+static void     hardware_reset(Pico_BNO08x_t *bno);
+static uint32_t hal_get_time_us(sh2_Hal_t *self);
+static void     hal_callback(void *cookie, sh2_AsyncEvent_t *pEvent);
+static void     sensor_handler(void *cookie, sh2_SensorEvent_t *event);
+
+// SPI HAL
+static bool     spi_hal_wait_for_int(Pico_BNO08x_t *bno);
+static int      spi_hal_open(sh2_Hal_t *self);
+static void     spi_hal_close(sh2_Hal_t *self);
+static int      spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us);
+static int      spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len);
+
+
+// -----------------------------------------------------------------------------
+// API
+// -----------------------------------------------------------------------------
+
+// Call this first on each IMU to make it “current”
+void pico_bno08x_set_active(Pico_BNO08x_t *bno) {
+    current_bno = bno;
+}
+
+bool pico_bno08x_init(Pico_BNO08x_t *bno, int8_t reset_pin, uint8_t instance_id) {
+    if (!bno) return false;
+    memset(bno, 0, sizeof(*bno));
+    bno->reset_pin      = reset_pin;
+    bno->int_pin        = -1;
+    bno->cs_pin         = -1;
+    bno->spi_speed      = 1000000;
+    bno->reset_occurred = false;
+    bno->hal.getTimeUs  = hal_get_time_us;
     return true;
 }
 
-static bool bno08x_event_queue_pop(bno08x_event_queue_t *queue, sh2_SensorValue_t *val) {
-    if (queue->head == queue->tail) return false; // Queue empty
-    *val = queue->queue[queue->tail];
-    queue->tail = (queue->tail + 1) % BNO08X_EVENT_QUEUE_SIZE;
-    return true;
+bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
+                           spi_inst_t *spi,
+                           uint8_t miso, uint8_t mosi, uint8_t sck,
+                           uint8_t cs,   uint8_t irq,
+                           uint32_t speed) {
+    if (!bno || !spi) return false;
+
+    // Make this the active IMU
+    current_bno = bno;
+
+    bno->spi_port  = spi;
+    bno->miso_pin  = miso;
+    bno->mosi_pin  = mosi;
+    bno->sck_pin   = sck;
+    bno->cs_pin    = cs;
+    bno->int_pin   = irq;
+    bno->spi_speed = speed;
+
+    // Initialize SPI peripheral once per bus
+    static bool spi0done=false, spi1done=false;
+    if (spi==spi0 && !spi0done) {
+        gpio_set_function(miso, GPIO_FUNC_SPI);
+        gpio_set_function(mosi, GPIO_FUNC_SPI);
+        gpio_set_function(sck,  GPIO_FUNC_SPI);
+        spi_init(spi0, speed);
+        spi_set_format(spi0, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+        spi0done=true;
+    } else if (spi==spi1 && !spi1done) {
+        gpio_set_function(miso, GPIO_FUNC_SPI);
+        gpio_set_function(mosi, GPIO_FUNC_SPI);
+        gpio_set_function(sck,  GPIO_FUNC_SPI);
+        spi_init(spi1, speed);
+        spi_set_format(spi1, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+        spi1done=true;
+    }
+
+    // Chip‐select pin
+    gpio_init(cs);
+    gpio_set_dir(cs, GPIO_OUT);
+    gpio_put(cs, 1);
+
+    // Interrupt pin
+    gpio_init(irq);
+    gpio_set_dir(irq, GPIO_IN);
+    gpio_pull_up(irq);
+
+    // Hook up SPI HAL callbacks
+    bno->hal.open  = spi_hal_open;
+    bno->hal.close = spi_hal_close;
+    bno->hal.read  = spi_hal_read;
+    bno->hal.write = spi_hal_write;
+
+    return pico_bno08x_init_common(bno);
 }
 
-// Simulate sensor data generation (replace with actual BNO08x communication later)
-static void generate_test_sensor_data(Pico_BNO08x_t *bno, uint8_t imu_index) {
-    static uint32_t last_gen_time[MAX_BNO08X_IMUS] = {0};
-    uint32_t now = time_us_32() / 1000; // milliseconds
-    
-    // Generate data every 100ms (10Hz)
-    if (now - last_gen_time[imu_index] < 100) return;
-    last_gen_time[imu_index] = now;
-    
-    sh2_SensorValue_t sensor_value;
-    memset(&sensor_value, 0, sizeof(sensor_value));
-    
-    // Generate fake quaternion data
-    float time_sec = now / 1000.0f;
-    float phase = imu_index * 2.0f * M_PI / 3.0f; // Different phase for each IMU
-    
-    sensor_value.sensorId = SH2_ROTATION_VECTOR;
-    sensor_value.timestamp = now * 1000; // Convert to microseconds
-    sensor_value.status = 3; // Good accuracy
-    
-    // Generate rotating quaternion
-    sensor_value.un.rotationVector.real = cosf(time_sec * 0.1f + phase);
-    sensor_value.un.rotationVector.i = sinf(time_sec * 0.1f + phase) * 0.5f;
-    sensor_value.un.rotationVector.j = sinf(time_sec * 0.15f + phase) * 0.3f;
-    sensor_value.un.rotationVector.k = sinf(time_sec * 0.12f + phase) * 0.2f;
-    sensor_value.un.rotationVector.accuracy = 0.1f;
-    
-    bno08x_event_queue_push(&bno->event_queue, &sensor_value);
-    
-    // Generate fake accelerometer data
-    sensor_value.sensorId = SH2_ACCELEROMETER;
-    sensor_value.un.accelerometer.x = sinf(time_sec * 0.5f + phase) * 2.0f;
-    sensor_value.un.accelerometer.y = cosf(time_sec * 0.3f + phase) * 1.5f;
-    sensor_value.un.accelerometer.z = 9.81f + sinf(time_sec * 0.2f + phase) * 0.5f;
-    
-    bno08x_event_queue_push(&bno->event_queue, &sensor_value);
-    
-    // Generate fake gyroscope data
-    sensor_value.sensorId = SH2_GYROSCOPE_CALIBRATED;
-    sensor_value.un.gyroscope.x = sinf(time_sec * 0.8f + phase) * 0.1f;
-    sensor_value.un.gyroscope.y = cosf(time_sec * 0.6f + phase) * 0.08f;
-    sensor_value.un.gyroscope.z = sinf(time_sec * 0.4f + phase) * 0.05f;
-    
-    bno08x_event_queue_push(&bno->event_queue, &sensor_value);
-    
-    // Generate fake magnetometer data
-    sensor_value.sensorId = SH2_MAGNETIC_FIELD_CALIBRATED;
-    sensor_value.un.magneticField.x = 25.0f + sinf(time_sec * 0.1f + phase) * 5.0f;
-    sensor_value.un.magneticField.y = 30.0f + cosf(time_sec * 0.15f + phase) * 3.0f;
-    sensor_value.un.magneticField.z = 45.0f + sinf(time_sec * 0.08f + phase) * 2.0f;
-    
-    bno08x_event_queue_push(&bno->event_queue, &sensor_value);
+void pico_bno08x_hardware_reset(Pico_BNO08x_t *bno) {
+    hardware_reset(bno);
 }
 
-// Basic SPI communication setup
-bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
-                           uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
-                           uint8_t cs_pin, uint8_t int_pin, uint8_t reset_pin,
-                           uint32_t spi_speed) {
-    
-    printf("Initializing BNO08x on CS pin %d...\n", cs_pin);
-    
-    bno->spi_port = spi_port;
-    bno->cs_pin = cs_pin;
-    bno->int_pin = int_pin;
-    bno->reset_pin = reset_pin;
-    bno->spi_speed = spi_speed;
-    bno->interface_type = INTERFACE_SPI;
-
-    // Initialize GPIO pins
-    gpio_init(cs_pin);
-    gpio_set_dir(cs_pin, GPIO_OUT);
-    gpio_put(cs_pin, 1); // CS high (inactive)
-
-    gpio_init(reset_pin);
-    gpio_set_dir(reset_pin, GPIO_OUT);
-    gpio_put(reset_pin, 0); // Reset active
-    sleep_ms(10);
-    gpio_put(reset_pin, 1); // Release reset
-    sleep_ms(100);
-
-    // Initialize interrupt pin as input
-    gpio_init(int_pin);
-    gpio_set_dir(int_pin, GPIO_IN);
-    gpio_pull_up(int_pin);
-
-    // Initialize SPI
-    spi_init(spi_port, spi_speed);
-    gpio_set_function(miso_pin, GPIO_FUNC_SPI);
-    gpio_set_function(mosi_pin, GPIO_FUNC_SPI);
-    gpio_set_function(sck_pin, GPIO_FUNC_SPI);
-
-    // Initialize event queue
-    memset(&bno->event_queue, 0, sizeof(bno->event_queue));
-
-    printf("BNO08x SPI initialization complete (CS: %d, INT: %d, RST: %d)\n", 
-           cs_pin, int_pin, reset_pin);
-
-    // TODO: Add actual BNO08x chip communication and sh2 HAL setup here
-    // For now, we'll simulate sensor data
-    
-    return true;
+bool pico_bno08x_was_reset(Pico_BNO08x_t *bno) {
+    if (!bno) return false;
+    bool r = bno->reset_occurred;
+    bno->reset_occurred = false;
+    return r;
 }
 
-// Service function - reads from hardware and populates queue
+bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t id, uint32_t interval_us) {
+    if (!bno) return false;
+    sh2_SensorConfig_t cfg = {
+        .changeSensitivityEnabled  = false,
+        .wakeupEnabled             = false,
+        .changeSensitivityRelative = false,
+        .alwaysOnEnabled           = false,
+        .changeSensitivity         = 0,
+        .batchInterval_us          = 0,
+        .sensorSpecific            = 0,
+        .reportInterval_us         = interval_us
+    };
+    return (sh2_setSensorConfig(id, &cfg) == SH2_OK);
+}
+
+bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
+    // make sure HAL callbacks reference the right IMU
+    current_bno = bno;
+    sensor_value = val;
+    val->timestamp = 0;
+    sh2_service();
+    sensor_value = NULL;
+    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
+}
+
 void pico_bno08x_service(Pico_BNO08x_t *bno) {
-    static uint8_t imu_counter = 0;
-    
-    if (!bno || !bno->initialized) return;
-    
-    // TODO: Replace this with actual BNO08x communication
-    // For now, generate test data
-    generate_test_sensor_data(bno, imu_counter % MAX_BNO08X_IMUS);
-    imu_counter++;
-    
-    // In a real implementation, you would:
-    // 1. Check the interrupt pin: if (!gpio_get(bno->int_pin)) return;
-    // 2. Read data packets from BNO08x via SPI
-    // 3. Parse packets using sh2 library functions
-    // 4. Push parsed sensor events to the queue
+    current_bno = bno;
+    sh2_service();
 }
 
-// Get sensor event from queue
-bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
-    if (!bno || !value) return false;
-    
-    return bno08x_event_queue_pop(&bno->event_queue, value);
-}
 
-// Multi-IMU management functions
-bool multi_bno08x_init(Multi_BNO08x_t *multi) {
-    if (!multi) return false;
-    
-    printf("Initializing Multi-BNO08x system...\n");
-    memset(multi, 0, sizeof(Multi_BNO08x_t));
-    multi->imu_count = 0;
-    
+// -----------------------------------------------------------------------------
+// INTERNAL
+// -----------------------------------------------------------------------------
+
+static bool pico_bno08x_init_common(Pico_BNO08x_t *bno) {
+    // hardware reset
+    hardware_reset(bno);
+
+    // open SH2: pass cookie=NULL, we use global current_bno
+    int st = sh2_open(&bno->hal, hal_callback, NULL);
+    if (st != SH2_OK) return false;
+
+    // product IDs
+    memset(&bno->prodIds, 0, sizeof(bno->prodIds));
+    sh2_getProdIds(&bno->prodIds);
+
+    // register sensor event callback (uses global sensor_value)
+    sh2_setSensorCallback(sensor_handler, NULL);
+
     return true;
 }
 
-bool multi_bno08x_add_spi_imu(Multi_BNO08x_t *multi, uint8_t index, spi_inst_t *spi_port,
-                              uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
-                              uint8_t cs_pin, uint8_t int_pin, uint8_t reset_pin, uint32_t spi_speed) {
-    
-    if (!multi || index >= MAX_BNO08X_IMUS) {
-        printf("ERROR: Invalid parameters - multi=%p, index=%d (max=%d)\n", 
-               multi, index, MAX_BNO08X_IMUS);
-        return false;
-    }
-    
-    printf("Adding IMU %d: CS=%d, INT=%d, RST=%d\n", index, cs_pin, int_pin, reset_pin);
-    
-    bool success = pico_bno08x_begin_spi(&multi->imus[index], spi_port, 
-                                         miso_pin, mosi_pin, sck_pin, 
-                                         cs_pin, int_pin, reset_pin, spi_speed);
-    
-    if (success) {
-        multi->imus[index].initialized = true;
-        if (index >= multi->imu_count) {
-            multi->imu_count = index + 1;
-        }
-        printf("✓ IMU %d initialized successfully\n", index);
-    } else {
-        printf("✗ Failed to initialize IMU %d\n", index);
-    }
-    
-    return success;
+static void hardware_reset(Pico_BNO08x_t *bno) {
+    if (!bno || bno->reset_pin<0) return;
+    gpio_init(bno->reset_pin);
+    gpio_set_dir(bno->reset_pin, GPIO_OUT);
+    gpio_put(bno->reset_pin, 1);
+    sleep_ms(10);
+    gpio_put(bno->reset_pin, 0);
+    sleep_ms(10);
+    gpio_put(bno->reset_pin, 1);
+    sleep_ms(20);
 }
 
-void multi_bno08x_service_all(Multi_BNO08x_t *multi) {
-    if (!multi) return;
-    
-    for (uint8_t i = 0; i < multi->imu_count; i++) {
-        if (multi->imus[i].initialized) {
-            pico_bno08x_service(&multi->imus[i]);
-        }
-    }
+static uint32_t hal_get_time_us(sh2_Hal_t *self) {
+    (void)self;
+    return time_us_32();
 }
 
-bool multi_bno08x_get_sensor_event(Multi_BNO08x_t *multi, uint8_t imu_index, sh2_SensorValue_t *value) {
-    if (!multi || !value || imu_index >= multi->imu_count) {
-        return false;
-    }
-    
-    if (!multi->imus[imu_index].initialized) {
-        return false;
-    }
-    
-    return pico_bno08x_get_sensor_event(&multi->imus[imu_index], value);
+static void hal_callback(void *cookie, sh2_AsyncEvent_t *e) {
+    (void)cookie;
+    if (!current_bno) return;
+    if (e->eventId == SH2_RESET) current_bno->reset_occurred = true;
 }
 
-bool multi_bno08x_is_imu_initialized(Multi_BNO08x_t *multi, uint8_t imu_index) {
-    if (!multi || imu_index >= multi->imu_count) return false;
-    
-    return multi->imus[imu_index].initialized;
-}
-
-uint8_t multi_bno08x_get_imu_count(Multi_BNO08x_t *multi) {
-    if (!multi) return 0;
-    
-    return multi->imu_count;
-}
-
-void multi_bno08x_enable_all_reports(Multi_BNO08x_t *multi, uint8_t sensorId, uint32_t interval_us) {
-    if (!multi) return;
-    
-    printf("Enabling sensor reports: ID=0x%02X, interval=%lu us\n", sensorId, interval_us);
-    
+// SPI HAL implementations
+static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
+    if (!bno) return false;
+    for (int i=0; i<500; i++) {
+        if (!gpio_get(bno->int_pin)) return true;
+        sleep_ms(1);
     }
+    hardware_reset(bno);
+    return false;
+}
+
+static int spi_hal_open(sh2_Hal_t *self) {
+    (void)self;
+    if (!current_bno) return -1;
+    return spi_hal_wait_for_int(current_bno) ? 0 : -1;
+}
+
+static void spi_hal_close(sh2_Hal_t *self) {
+    (void)self;
+}
+
+static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us) {
+    (void)self;
+    if (!current_bno||!buf) return 0;
+    if (!spi_hal_wait_for_int(current_bno)) return 0;
+
+    uint8_t hdr[4];
+    gpio_put(current_bno->cs_pin,0);
+    spi_read_blocking(current_bno->spi_port,0x00,hdr,4);
+    gpio_put(current_bno->cs_pin,1);
+
+    uint16_t sz = ((uint16_t)hdr[0]|((uint16_t)hdr[1]<<8))&~0x8000;
+    if (!sz||sz>len) return 0;
+
+    if (!spi_hal_wait_for_int(current_bno)) return 0;
+    gpio_put(current_bno->cs_pin,0);
+    spi_read_blocking(current_bno->spi_port,0x00,buf,sz);
+    gpio_put(current_bno->cs_pin,1);
+
+    if(t_us)*t_us=time_us_32();
+    return sz;
+}
+
+static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
+    (void)self;
+    if (!current_bno||!buf) return 0;
+    if (!spi_hal_wait_for_int(current_bno)) return 0;
+    gpio_put(current_bno->cs_pin,0);
+    spi_write_blocking(current_bno->spi_port,buf,len);
+    gpio_put(current_bno->cs_pin,1);
+    return len;
+}
+
+// Sensor handler
+static void sensor_handler(void *cookie, sh2_SensorEvent_t *event){
+    (void)cookie;
+    if (!sensor_value) return;
+    if (sh2_decodeSensorEvent(sensor_value,event)!=SH2_OK)
+        sensor_value->timestamp=0;
 }

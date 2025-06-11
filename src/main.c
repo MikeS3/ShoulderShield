@@ -1,142 +1,129 @@
-/*
- * Triple-BNO08x Example for Raspberry Pi Pico 2W (Supports 3 IMUs)
- */
+// File: main.c — Dual‑IMU with Recommended Fixes
 
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
+#include "hardware/gpio.h"
 #include "Pico_BNO08x.h"
 
-// SPI shared pins
-#define SPI_MISO_PIN    16
-#define SPI_MOSI_PIN    19
-#define SPI_SCK_PIN     18
+#define SPI_MISO   16
+#define SPI_MOSI   19
+#define SPI_SCK    18
 
-// IMU 1 (Upper Arm)
-#define IMU1_CS_PIN     17
-#define IMU1_INT_PIN    20
-#define IMU1_RESET_PIN  15
+// IMU1 pins
+#define CS1_PIN    17
+#define INT1_PIN   20
+#define RST1_PIN   15
 
-// IMU 2 (Forearm)
-#define IMU2_CS_PIN     21
-#define IMU2_INT_PIN    22
-#define IMU2_RESET_PIN  26
+// IMU2 pins
+#define CS2_PIN    13
+#define INT2_PIN   12
+#define RST2_PIN   14
 
-// IMU 3 (Torso)
-#define IMU3_CS_PIN     27
-#define IMU3_INT_PIN    28
-#define IMU3_RESET_PIN  14
-
-#define SPI_SPEED       1000000  // 1MHz
-
-// Print helpers
-void print_quaternion(uint8_t imu_id, sh2_SensorValue_t *value) {
-    printf("IMU%d Quaternion: i=%.4f, j=%.4f, k=%.4f, real=%.4f, accuracy=%.4f\n",
-           imu_id,
-           value->un.rotationVector.i,
-           value->un.rotationVector.j,
-           value->un.rotationVector.k,
-           value->un.rotationVector.real,
-           value->un.rotationVector.accuracy);
+void print_quat(const char *label, sh2_SensorValue_t *v) {
+    printf("%s: i=%.4f j=%.4f k=%.4f r=%.4f acc=%.4f\n",
+           label,
+           v->un.rotationVector.i,
+           v->un.rotationVector.j,
+           v->un.rotationVector.k,
+           v->un.rotationVector.real,
+           v->un.rotationVector.accuracy);
 }
 
-void print_accelerometer(uint8_t imu_id, sh2_SensorValue_t *value) {
-    printf("IMU%d Accel: x=%.4f, y=%.4f, z=%.4f m/s²\n",
-           imu_id,
-           value->un.accelerometer.x,
-           value->un.accelerometer.y,
-           value->un.accelerometer.z);
-}
+void reset_and_wait(uint8_t rst_pin, uint8_t int_pin, const char *label) {
+    // Hardware reset
+    gpio_put(rst_pin, 0);
+    sleep_ms(10);
+    gpio_put(rst_pin, 1);
 
-void print_gyroscope(uint8_t imu_id, sh2_SensorValue_t *value) {
-    printf("IMU%d Gyro: x=%.4f, y=%.4f, z=%.4f rad/s\n",
-           imu_id,
-           value->un.gyroscope.x,
-           value->un.gyroscope.y,
-           value->un.gyroscope.z);
-}
+    // Wait ~100 ms for BNO08x internal startup
+    sleep_ms(100);
 
-void print_magnetometer(uint8_t imu_id, sh2_SensorValue_t *value) {
-    printf("IMU%d Mag: x=%.4f, y=%.4f, z=%.4f uT\n",
-           imu_id,
-           value->un.magneticField.x,
-           value->un.magneticField.y,
-           value->un.magneticField.z);
+    // Poll INT going low
+    printf("%s waiting for INT to go low...", label);
+    for (int i = 0; i < 200; i++) {
+        if (gpio_get(int_pin) == 0) {
+            printf(" done after %dms\n", i);
+            return;
+        }
+        sleep_ms(1);
+    }
+    printf(" timed out!\n");
 }
 
 int main() {
     stdio_init_all();
     sleep_ms(2000);
+    printf("Dual‑BNO08x Stabilized Read\n");
+    printf("===========================\n");
 
-    printf("Triple-BNO08x IMU Example for Raspberry Pi Pico 2W\n");
-    printf("==================================================\n");
+    // 1) SPI setup: mode 3, 2 MHz
+    spi_init(spi0, 2000000);
+    spi_set_format(spi0, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    gpio_set_function(SPI_MISO, GPIO_FUNC_SPI);
+    gpio_set_function(SPI_MOSI, GPIO_FUNC_SPI);
+    gpio_set_function(SPI_SCK,  GPIO_FUNC_SPI);
 
-    Multi_BNO08x_t multi_imu;
-    multi_bno08x_init(&multi_imu);
+    // 2) INT lines: inputs w/ pull-ups
+    gpio_init(INT1_PIN); gpio_set_dir(INT1_PIN, GPIO_IN); gpio_pull_up(INT1_PIN);
+    gpio_init(INT2_PIN); gpio_set_dir(INT2_PIN, GPIO_IN); gpio_pull_up(INT2_PIN);
 
-    // Initialize all 3 IMUs
-    multi_bno08x_add_spi_imu(&multi_imu, 0, spi0, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                             IMU1_CS_PIN, IMU1_INT_PIN, IMU1_RESET_PIN, SPI_SPEED);
+    // 3) CS lines: outputs, idle high
+    gpio_init(CS1_PIN); gpio_set_dir(CS1_PIN, GPIO_OUT); gpio_put(CS1_PIN, 1);
+    gpio_init(CS2_PIN); gpio_set_dir(CS2_PIN, GPIO_OUT); gpio_put(CS2_PIN, 1);
 
-    multi_bno08x_add_spi_imu(&multi_imu, 1, spi0, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                             IMU2_CS_PIN, IMU2_INT_PIN, IMU2_RESET_PIN, SPI_SPEED);
+    // 4) Prepare IMU structs
+    Pico_BNO08x_t imu1, imu2;
+    pico_bno08x_init(&imu1, RST1_PIN, 0);
+    pico_bno08x_init(&imu2, RST2_PIN, 1);
 
-    multi_bno08x_add_spi_imu(&multi_imu, 2, spi0, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                             IMU3_CS_PIN, IMU3_INT_PIN, IMU3_RESET_PIN, SPI_SPEED);
+    // 5) Sequential Reset + Init IMU1
+    reset_and_wait(RST1_PIN, INT1_PIN, "IMU1");
+    printf("IMU1 begin_spi => %d\n",
+        pico_bno08x_begin_spi(&imu1, spi0,
+                              SPI_MISO, SPI_MOSI, SPI_SCK,
+                              CS1_PIN, INT1_PIN, 2000000));
+    pico_bno08x_enable_report(&imu1, SH2_ROTATION_VECTOR, 100000);
 
-    sleep_ms(500);
+    // small gap before IMU2
+    sleep_ms(200);
 
-    printf("\nActive IMUs: %d\n", multi_bno08x_get_imu_count(&multi_imu));
+    // 6) Sequential Reset + Init IMU2
+    reset_and_wait(RST2_PIN, INT2_PIN, "IMU2");
+    printf("IMU2 begin_spi => %d\n",
+        pico_bno08x_begin_spi(&imu2, spi0,
+                              SPI_MISO, SPI_MOSI, SPI_SCK,
+                              CS2_PIN, INT2_PIN, 2000000));
+    pico_bno08x_enable_report(&imu2, SH2_ROTATION_VECTOR, 100000);
 
-    // Enable sensors on all IMUs at 10Hz (100000 us)
-    multi_bno08x_enable_all_reports(&multi_imu, SH2_ROTATION_VECTOR, 100000);
-    multi_bno08x_enable_all_reports(&multi_imu, SH2_ACCELEROMETER, 100000);
-    multi_bno08x_enable_all_reports(&multi_imu, SH2_GYROSCOPE_CALIBRATED, 100000);
-    multi_bno08x_enable_all_reports(&multi_imu, SH2_MAGNETIC_FIELD_CALIBRATED, 100000);
-
-    printf("\nStarting data acquisition...\n\n");
-
-    sh2_SensorValue_t sensor_value;
-    uint32_t last_print_time = 0;
-    uint32_t sensor_count = 0;
-
+    // 7) Main loop: poll INT, service only that IMU
+    sh2_SensorValue_t v;
     while (1) {
-        multi_bno08x_service_all(&multi_imu);
-
-        for (uint8_t imu_idx = 0; imu_idx < multi_imu.imu_count; imu_idx++) {
-            if (!multi_bno08x_is_imu_initialized(&multi_imu, imu_idx)) continue;
-
-            while (multi_bno08x_get_sensor_event(&multi_imu, imu_idx, &sensor_value)) {
-                uint32_t now = time_us_32() / 1000;
-
-                if (now - last_print_time > 1000) {
-                    printf("=== IMU %d Data (Status: %d, Count: %lu) ===\n",
-                           imu_idx + 1, sensor_value.status, ++sensor_count);
-
-                    switch (sensor_value.sensorId) {
-                        case SH2_ROTATION_VECTOR:
-                            print_quaternion(imu_idx + 1, &sensor_value);
-                            break;
-                        case SH2_ACCELEROMETER:
-                            print_accelerometer(imu_idx + 1, &sensor_value);
-                            break;
-                        case SH2_GYROSCOPE_CALIBRATED:
-                            print_gyroscope(imu_idx + 1, &sensor_value);
-                            break;
-                        case SH2_MAGNETIC_FIELD_CALIBRATED:
-                            print_magnetometer(imu_idx + 1, &sensor_value);
-                            break;
-                        default:
-                            printf("IMU%d Unknown sensor ID: 0x%02X\n", imu_idx + 1, sensor_value.sensorId);
-                            break;
-                    }
-                    last_print_time = now;
-                    printf("\n");
-                }
+        // IMU1 if interrupt
+        if (gpio_get(INT1_PIN) == 0) {
+            gpio_put(CS2_PIN, 1);       // ensure IMU2 is deselected
+            gpio_put(CS1_PIN, 0);
+            sleep_us(5);
+            pico_bno08x_service(&imu1);
+            if (pico_bno08x_get_sensor_event(&imu1, &v)) {
+                print_quat("IMU1", &v);
             }
+            gpio_put(CS1_PIN, 1);
         }
+
+        // IMU2 if interrupt
+        if (gpio_get(INT2_PIN) == 0) {
+            gpio_put(CS1_PIN, 1);
+            gpio_put(CS2_PIN, 0);
+            sleep_us(5);
+            pico_bno08x_service(&imu2);
+            if (pico_bno08x_get_sensor_event(&imu2, &v)) {
+                print_quat("IMU2", &v);
+            }
+            gpio_put(CS2_PIN, 1);
+        }
+
         sleep_ms(1);
     }
-
     return 0;
 }
