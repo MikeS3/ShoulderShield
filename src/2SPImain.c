@@ -37,7 +37,7 @@ void print_quat(const char* label, sh2_SensorValue_t* value) {
 
 int main() {
     stdio_init_all();
-    sleep_ms(500);
+    //sleep_ms(500);
     printf("Starting dual-IMU SPI example...\n");
 
     // Init IMU1 on SPI0

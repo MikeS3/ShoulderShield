@@ -6,6 +6,10 @@
 #include "Pico_BNO08x.h"
 #include <string.h>
 
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)((char *)__mptr - offsetof(type,member));})
+
 // “Active” instance for HAL callbacks
 static Pico_BNO08x_t *current_bno = NULL;
 static sh2_SensorValue_t *sensor_value = NULL;
@@ -83,7 +87,7 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
     bno->hal.close = spi_hal_close;
     bno->hal.read  = spi_hal_read;
     bno->hal.write = spi_hal_write;
-
+    bno->hal.getTimeUs = hal_get_time_us;
     return pico_bno08x_init_common(bno);
 }
 
@@ -93,11 +97,11 @@ static void hardware_reset(Pico_BNO08x_t *bno) {
     gpio_init(bno->reset_pin);
     gpio_set_dir(bno->reset_pin, GPIO_OUT);
     gpio_put(bno->reset_pin, 1);
-    sleep_ms(10);
+    //sleep_ms(10);
     gpio_put(bno->reset_pin, 0);
-    sleep_ms(10);
+    //sleep_ms(10);
     gpio_put(bno->reset_pin, 1);
-    sleep_ms(20);
+    //sleep_ms(20);
 }
 
 // Core SH2 init + callbacks
@@ -169,11 +173,11 @@ static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
 }
 static int spi_hal_open(sh2_Hal_t *self){
     (void)self;
-    return (current_bno && spi_hal_wait_for_int(current_bno)) ? 0 : -1;
+    return SH2_OK;
 }
 static void spi_hal_close(sh2_Hal_t *self){ (void)self; }
 static int spi_hal_read(sh2_Hal_t *self,uint8_t *buf,unsigned len,uint32_t *t_us){
-    (void)self;
+    /*(void)self;
     if (!current_bno||!buf) return 0;
     if (!spi_hal_wait_for_int(current_bno)) return 0;
     uint8_t hdr[4];
@@ -187,14 +191,28 @@ static int spi_hal_read(sh2_Hal_t *self,uint8_t *buf,unsigned len,uint32_t *t_us
     spi_read_blocking(current_bno->spi_port,0x00,buf,sz);
     gpio_put(current_bno->cs_pin,1);
     if(t_us) *t_us=time_us_32();
-    return sz;
+    return sz; */                   //old sh2 test code 
+    
+    Pico_BNO08x_t* bno;
+    bno = container_of(self, Pico_BNO08x_t, hal);
+    gpio_put(bno->cs_pin, 0);
+    int ret = spi_read_blocking(bno->spi_port, 0x00, buf, len);
+    gpio_put(bno->cs_pin, 1);
+    return ret;
 }
 static int spi_hal_write(sh2_Hal_t *self,uint8_t *buf,unsigned len){
-    (void)self;
+   /* (void)self;
     if (!current_bno||!buf) return 0;
     if (!spi_hal_wait_for_int(current_bno)) return 0;
     gpio_put(current_bno->cs_pin,0);
     spi_write_blocking(current_bno->spi_port,buf,len);
     gpio_put(current_bno->cs_pin,1);
-    return len;
+    return len; */
+
+    Pico_BNO08x_t* bno;
+    bno = container_of(self, Pico_BNO08x_t, hal);
+    gpio_put(bno->cs_pin, 0);
+    int ret = spi_write_blocking(bno->spi_port, buf, len);
+    gpio_put(bno->cs_pin, 1);
+    return ret;
 }

@@ -20,7 +20,7 @@ pico_add_extra_outputs(blink)
 
 # Add BNO08x IMU example executable
 add_executable(bno08x_example
-    main.c
+    2SPImain.c
     Pico_BNO08x_multi.c
     sh2.c
     sh2_SensorValue.c
