@@ -1,2 +1,9 @@
+*
+!*/
+!*.c
+!*.h
+!CMakeLists.txt
 /build/
 /lib/pico-sdk/.git/
+!.gitignore
+!.gitmodules
