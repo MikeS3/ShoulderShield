@@ -36,7 +36,7 @@ void pico_bno08x_set_active(Pico_BNO08x_t *bno) {
 }
 
 // Basic init (zero struct, set reset pin, HAL timer)
-bool pico_bno08x_init(Pico_BNO08x_t *bno, int8_t reset_pin) {
+bool pico_bno08x_init(Pico_BNO08x_t *bno, int8_t reset_pin, uint8_t instance_id) {
     if (!bno) return false;
     memset(bno, 0, sizeof(*bno));
     bno->reset_pin     = reset_pin;
