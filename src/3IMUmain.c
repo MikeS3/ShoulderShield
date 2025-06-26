@@ -39,10 +39,6 @@ void configure_gpio() {
     gpio_init(INT1_PIN); gpio_set_dir(INT1_PIN, GPIO_IN); gpio_pull_up(INT1_PIN);
     gpio_init(INT2_PIN); gpio_set_dir(INT2_PIN, GPIO_IN); gpio_pull_up(INT2_PIN);
     gpio_init(INT3_PIN); gpio_set_dir(INT3_PIN, GPIO_IN); gpio_pull_up(INT3_PIN);
-
-    gpio_put(CS1_PIN, 1);
-    gpio_put(CS2_PIN, 1);
-    gpio_put(CS3_PIN, 1);
 }
 
 bool init_imu(Pico_BNO08x_t *imu, int reset_pin, int cs_pin, int int_pin) {
@@ -57,8 +53,8 @@ bool init_imu(Pico_BNO08x_t *imu, int reset_pin, int cs_pin, int int_pin) {
     gpio_put(reset_pin, 1);
     sleep_ms(50);
 
-    if (!pico_bno08x_init(imu, reset_pin, id)) return false;
-    return pico_bno08x_begin_spi(imu, SPI_PORT, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN, cs_pin, int_pin, 1000000);
+    if (!pico_bno08x_init(imu, reset_pin, instance_id)) return false;
+    return pico_bno08x_begin_spi(imu, SPI_PORT, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN, cs_pin, int_pin, 1000000); //1 MHz Spi
 }
 
 void enable_reports(Pico_BNO08x_t *imu) {
@@ -67,31 +63,34 @@ void enable_reports(Pico_BNO08x_t *imu) {
     pico_bno08x_enable_report(imu, SH2_GYROSCOPE_CALIBRATED, 100000);
     pico_bno08x_enable_report(imu, SH2_MAGNETIC_FIELD_CALIBRATED, 100000);
 }
+//100,000us = 10Hz refresh rate
 
 void print_sensor(Pico_BNO08x_t *imu, int id) {
     sh2_SensorValue_t val;
     if (pico_bno08x_get_sensor_event(imu, &val)) {
-        printf("[IMU%d] Sensor ID: %d\n", id, val.sensorId);
+        printf("[IMU%d] ID: %d ", id, val.sensorId);
         if (val.sensorId == SH2_ROTATION_VECTOR) {
-            printf("[IMU%d] Quaternion: i=%.2f j=%.2f k=%.2f r=%.2f\n", id,
-                   val.un.rotationVector.i,
-                   val.un.rotationVector.j,
-                   val.un.rotationVector.k,
-                   val.un.rotationVector.real);
+            printf("Quat: i=%.2f j=%.2f k=%.2f r=%.2f\n", 
+                val.un.rotationVector.i,
+                val.un.rotationVector.j,
+                val.un.rotationVector.k,
+                val.un.rotationVector.real);
+        } else if (val.sensorId == SH2_ACCELEROMETER) {
+            printf("Accel: x=%.2f y=%.2f z=%.2f\n",
+                val.un.accelerometer.x,
+                val.un.accelerometer.y,
+                val.un.accelerometer.z);
         }
     }
 }
 
 int main() {
     stdio_init_all();
-    sleep_ms(2000);
+    sleep_ms(1000);
     printf("Triple IMU SPI Example Start\n");
 
     configure_gpio();
-    spi_init(SPI_PORT, 1000000);
-    gpio_set_function(SPI_MISO_PIN, GPIO_FUNC_SPI);
-    gpio_set_function(SPI_MOSI_PIN, GPIO_FUNC_SPI);
-    gpio_set_function(SPI_SCK_PIN, GPIO_FUNC_SPI);
+    //spi set to 1000000 = 1MHz
 
     imu1_ok = init_imu(&imu1, RESET1_PIN, CS1_PIN, INT1_PIN);
     printf("IMU1 %s\n", imu1_ok ? "initialized" : "failed SPI init");
@@ -107,19 +106,10 @@ int main() {
     if (imu3_ok) enable_reports(&imu3);
 
     while (1) {
-        if (imu1_ok) {
-            pico_bno08x_service(&imu1);
-            print_sensor(&imu1, 1);
-        }
-        if (imu2_ok) {
-            pico_bno08x_service(&imu2);
-            print_sensor(&imu2, 2);
-        }
-        if (imu3_ok) {
-            pico_bno08x_service(&imu3);
-            print_sensor(&imu3, 3);
-        }
-        sleep_ms(100);
+        if (imu1_ok) { pico_bno08x_service(&imu1); print_sensor(&imu1, 1); }
+        if (imu2_ok) { pico_bno08x_service(&imu2); print_sensor(&imu2, 2); }
+        if (imu3_ok) { pico_bno08x_service(&imu3); print_sensor(&imu3, 3); }
+        sleep_ms(50);
     }
 
     return 0;
