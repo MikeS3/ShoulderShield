@@ -57,7 +57,7 @@ bool init_imu(Pico_BNO08x_t *imu, int reset_pin, int cs_pin, int int_pin) {
     gpio_put(reset_pin, 1);
     sleep_ms(50);
 
-    if (!pico_bno08x_init(imu, reset_pin, true)) return false;
+    if (!pico_bno08x_init(imu, reset_pin, id)) return false;
     return pico_bno08x_begin_spi(imu, SPI_PORT, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN, cs_pin, int_pin, 1000000);
 }
 
