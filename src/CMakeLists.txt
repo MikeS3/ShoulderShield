@@ -18,9 +18,9 @@ endif()
 # Create map/bin/hex/uf2 files
 pico_add_extra_outputs(blink)
 
-# Add BNO08x IMU example executable
-add_executable(bno08x_example
-    2SPImain.c
+# Add BNO08x IMU example executable with your 3 IMU test main
+add_executable(Simple_test_3Imu
+    Simple_test_3Imu.c
     Pico_BNO08x_multi.c
     sh2.c
     sh2_SensorValue.c
@@ -28,23 +28,20 @@ add_executable(bno08x_example
     shtp.c
 )
 
-# Enable USB and UART output for BNO08x example
-pico_enable_stdio_usb(bno08x_example 1)
-pico_enable_stdio_uart(bno08x_example 1)
+# Enable USB and UART output for your example
+pico_enable_stdio_usb(Simple_test_3Imu 1)
+pico_enable_stdio_uart(Simple_test_3Imu 1)
 
-# Include directories for BNO08x
-target_include_directories(bno08x_example PRIVATE
+# Include directories for BNO08x (assuming headers in current dir)
+target_include_directories(Simple_test_3Imu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Link libraries for BNO08x example
-target_link_libraries(bno08x_example 
+# Link required hardware libraries and pico stdlib
+target_link_libraries(Simple_test_3Imu
     pico_stdlib
-    hardware_i2c
     hardware_spi
-    hardware_uart
     hardware_gpio
 )
 
-# Create map/bin/hex/uf2 files for BNO08x example
-pico_add_extra_outputs(bno08x_example)
+pico_add_extra_outputs(Simple_test_3Imu)
