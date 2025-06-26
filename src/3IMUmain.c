@@ -24,39 +24,55 @@
 #define INT3_PIN        10
 #define RESET3_PIN      9
 
+// Global IMU instances and status flags
 Pico_BNO08x_t imu1, imu2, imu3;
 bool imu1_ok = false, imu2_ok = false, imu3_ok = false;
 
+// Set up all required GPIOs
 void configure_gpio() {
-    gpio_init(CS1_PIN); gpio_set_dir(CS1_PIN, GPIO_OUT);
-    gpio_init(CS2_PIN); gpio_set_dir(CS2_PIN, GPIO_OUT);
-    gpio_init(CS3_PIN); gpio_set_dir(CS3_PIN, GPIO_OUT);
+    // Chip Selects: default HIGH (inactive)
+    gpio_init(CS1_PIN); gpio_set_dir(CS1_PIN, GPIO_OUT); gpio_put(CS1_PIN, 1);
+    gpio_init(CS2_PIN); gpio_set_dir(CS2_PIN, GPIO_OUT); gpio_put(CS2_PIN, 1);
+    gpio_init(CS3_PIN); gpio_set_dir(CS3_PIN, GPIO_OUT); gpio_put(CS3_PIN, 1);
 
+    // Reset Pins: default OUTPUT LOW
     gpio_init(RESET1_PIN); gpio_set_dir(RESET1_PIN, GPIO_OUT);
     gpio_init(RESET2_PIN); gpio_set_dir(RESET2_PIN, GPIO_OUT);
     gpio_init(RESET3_PIN); gpio_set_dir(RESET3_PIN, GPIO_OUT);
 
+    // INT Pins: INPUT w/ pull-up
     gpio_init(INT1_PIN); gpio_set_dir(INT1_PIN, GPIO_IN); gpio_pull_up(INT1_PIN);
     gpio_init(INT2_PIN); gpio_set_dir(INT2_PIN, GPIO_IN); gpio_pull_up(INT2_PIN);
     gpio_init(INT3_PIN); gpio_set_dir(INT3_PIN, GPIO_IN); gpio_pull_up(INT3_PIN);
 }
+void init_spi_bus() {
+    // Initialize SPI bus once
+    spi_init(SPI_PORT, 1000000);
+    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    
+    // Set up SPI GPIO functions
+    gpio_set_function(SPI_MISO_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(SPI_MOSI_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(SPI_SCK_PIN, GPIO_FUNC_SPI);
+}
 
+// Initialize a single IMU — handles reset logic and SPI begin
 bool init_imu(Pico_BNO08x_t *imu, int reset_pin, int cs_pin, int int_pin) {
     // Reset other IMUs
     if (reset_pin != RESET1_PIN) gpio_put(RESET1_PIN, 0);
     if (reset_pin != RESET2_PIN) gpio_put(RESET2_PIN, 0);
     if (reset_pin != RESET3_PIN) gpio_put(RESET3_PIN, 0);
-
+    static int instance_id = 0; 
     // Reset this IMU
     gpio_put(reset_pin, 0);
     sleep_ms(10);
     gpio_put(reset_pin, 1);
-    sleep_ms(50);
+    sleep_ms(50); // Wait for IMU boot
 
     if (!pico_bno08x_init(imu, reset_pin, instance_id)) return false;
     return pico_bno08x_begin_spi(imu, SPI_PORT, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN, cs_pin, int_pin, 1000000); //1 MHz Spi
 }
-
+// Enable sensor reports: rotation, accel, gyro, mag
 void enable_reports(Pico_BNO08x_t *imu) {
     pico_bno08x_enable_report(imu, SH2_ROTATION_VECTOR, 100000);
     pico_bno08x_enable_report(imu, SH2_ACCELEROMETER, 100000);
@@ -64,34 +80,33 @@ void enable_reports(Pico_BNO08x_t *imu) {
     pico_bno08x_enable_report(imu, SH2_MAGNETIC_FIELD_CALIBRATED, 100000);
 }
 //100,000us = 10Hz refresh rate
-
+// Read and print data from any one IMU
 void print_sensor(Pico_BNO08x_t *imu, int id) {
     sh2_SensorValue_t val;
     if (pico_bno08x_get_sensor_event(imu, &val)) {
-        printf("[IMU%d] ID: %d ", id, val.sensorId);
+        printf("[IMU%d] Sensor ID: %d\n", id, val.sensorId);
         if (val.sensorId == SH2_ROTATION_VECTOR) {
-            printf("Quat: i=%.2f j=%.2f k=%.2f r=%.2f\n", 
-                val.un.rotationVector.i,
-                val.un.rotationVector.j,
-                val.un.rotationVector.k,
-                val.un.rotationVector.real);
-        } else if (val.sensorId == SH2_ACCELEROMETER) {
-            printf("Accel: x=%.2f y=%.2f z=%.2f\n",
-                val.un.accelerometer.x,
-                val.un.accelerometer.y,
-                val.un.accelerometer.z);
+            printf("[IMU%d] Quaternion: i=%.2f j=%.2f k=%.2f r=%.2f\n", id,
+                   val.un.rotationVector.i,
+                   val.un.rotationVector.j,
+                   val.un.rotationVector.k,
+                   val.un.rotationVector.real);
         }
     }
 }
 
 int main() {
     stdio_init_all();
-    sleep_ms(1000);
+    sleep_ms(2000);
     printf("Triple IMU SPI Example Start\n");
 
     configure_gpio();
     //spi set to 1000000 = 1MHz
-
+    
+    // Step 2: SPI init for shared bus
+    init_spi_bus();
+    
+    // Step 3: Initialize each IMU separately (resetting others)
     imu1_ok = init_imu(&imu1, RESET1_PIN, CS1_PIN, INT1_PIN);
     printf("IMU1 %s\n", imu1_ok ? "initialized" : "failed SPI init");
 
@@ -100,16 +115,18 @@ int main() {
 
     imu3_ok = init_imu(&imu3, RESET3_PIN, CS3_PIN, INT3_PIN);
     printf("IMU3 %s\n", imu3_ok ? "initialized" : "failed SPI init");
-
+       
+    // Step 4: Enable reports on each successfully initialized IMU
     if (imu1_ok) enable_reports(&imu1);
     if (imu2_ok) enable_reports(&imu2);
     if (imu3_ok) enable_reports(&imu3);
 
+    // Step 5: Loop and read IMU data (each has its own INT + CS pin)
     while (1) {
         if (imu1_ok) { pico_bno08x_service(&imu1); print_sensor(&imu1, 1); }
         if (imu2_ok) { pico_bno08x_service(&imu2); print_sensor(&imu2, 2); }
         if (imu3_ok) { pico_bno08x_service(&imu3); print_sensor(&imu3, 3); }
-        sleep_ms(50);
+        sleep_ms(100);
     }
 
     return 0;
