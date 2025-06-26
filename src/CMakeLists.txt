@@ -1,24 +1,15 @@
-# Add blink executable (keep existing)
-add_executable(blink 
-    blink.c
-)
+cmake_minimum_required(VERSION 3.13)
 
-# Enable USB and UART output
-pico_enable_stdio_usb(blink 1)
-pico_enable_stdio_uart(blink 1)
+# Instruct CMake where the Pico SDK is located
+include(pico_sdk_import.cmake)
+project(bno08x_multi_project C CXX ASM)
 
-# Link libraries
-target_link_libraries(blink 
-    pico_stdlib
-)
-if (PICO_CYW43_SUPPORTED)
-    target_link_libraries(blink pico_cyw43_arch_none)
-endif()
+# Initialize the Pico SDK
+pico_sdk_init()
 
-# Create map/bin/hex/uf2 files
-pico_add_extra_outputs(blink)
-
-# Add BNO08x IMU example executable with your 3 IMU test main
+# ------------------------------
+# Example: Multi-IMU BNO08x Demo
+# ------------------------------
 add_executable(Simple_test_3Imu
     Simple_test_3Imu.c
     Pico_BNO08x_multi.c
@@ -28,20 +19,24 @@ add_executable(Simple_test_3Imu
     shtp.c
 )
 
-# Enable USB and UART output for your example
+# Enable USB and UART output for this target
 pico_enable_stdio_usb(Simple_test_3Imu 1)
 pico_enable_stdio_uart(Simple_test_3Imu 1)
 
-# Include directories for BNO08x (assuming headers in current dir)
+# Include directories (SDK and project)
 target_include_directories(Simple_test_3Imu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Link required hardware libraries and pico stdlib
+# Link against Pico libraries
 target_link_libraries(Simple_test_3Imu
     pico_stdlib
     hardware_spi
     hardware_gpio
 )
 
+# Generate binary, hex, and uf2 files
 pico_add_extra_outputs(Simple_test_3Imu)
+
+# Export compile commands for IDEs
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "pico.h": "c",
+        "config.h": "c",
+        "config_autogen.h": "c"
+    }
+}

@@ -1,21 +1,3 @@
-/*!
- *  @file Pico_BNO08x.h
- *
- *  Raspberry Pi Pico Driver for the BNO08x 9-DOF Orientation IMU Fusion
- *
- *  Ported from Adafruit BNO08x library to work with Raspberry Pi Pico SDK
- *  Supports multiple IMU instances via SPI
- *
- *  @section dependencies Dependencies
- *  This library depends on the Raspberry Pi Pico SDK and SH2 library with .cookie support
- *
- *  @section author Author
- *  Ported for Raspberry Pi Pico
- *
- *  @section license License
- *  BSD (see license.txt)
- */
-
 #ifndef PICO_BNO08X_H
 #define PICO_BNO08X_H
 
@@ -84,6 +66,7 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
 
 // Service function (replaces set_active pattern)
 void pico_bno08x_service(Pico_BNO08x_t *bno);
+void hardware_reset(Pico_BNO08x_t *bno);
 
 // Sensor configuration
 bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us);

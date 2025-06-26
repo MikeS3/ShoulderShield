@@ -25,21 +25,32 @@
 
 Pico_BNO08x_t imu1, imu2, imu3;
 
-void setup_imu(Pico_BNO08x_t *imu, int reset, int instance,
+void setup_imu(Pico_BNO08x_t *imu, int reset_pin, int instance_id,
                uint8_t cs, uint8_t int_pin,
                const char *label) {
-    if (!pico_bno08x_init(imu, reset, instance)) {
+    // Reset the device via the public API
+    hardware_reset(imu);
+
+    if (!pico_bno08x_init(imu, reset_pin, instance_id)) {
         printf("[ERROR] %s init failed!\n", label);
         return;
     }
 
-    if (!pico_bno08x_begin_spi(imu, SPI_PORT, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                               cs, int_pin, 1000000)) {
+    int rc;
+    rc = pico_bno08x_begin_spi(imu, SPI_PORT,
+                               SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
+                               cs, int_pin, 3000000);
+    printf("[DEBUG] %s begin_spi returned %d\n", label, rc);
+
+    if (rc != true) {
         printf("[ERROR] %s SPI begin failed!\n", label);
         return;
     }
 
-    if (!pico_bno08x_enable_report(imu, SH2_GYRO_INTEGRATED_RV, 10000)) {
+    rc = pico_bno08x_enable_report(imu, SH2_GYRO_INTEGRATED_RV, 10000);
+    printf("[DEBUG] %s enable_report returned %d\n", label, rc);
+
+    if (!rc) {
         printf("[ERROR] %s report enable failed!\n", label);
         return;
     }
@@ -47,14 +58,14 @@ void setup_imu(Pico_BNO08x_t *imu, int reset, int instance,
     printf("[OK] %s initialized successfully\n", label);
 }
 
+
 int main() {
     stdio_init_all();
     sleep_ms(3000);  // wait for USB console
 
     printf("Initializing 3 BNO08x IMUs...\n");
-
-    setup_imu(&imu1, RESET1_PIN, 1, CS1_PIN, INT1_PIN, "IMU1");
     setup_imu(&imu2, RESET2_PIN, 2, CS2_PIN, INT2_PIN, "IMU2");
+    setup_imu(&imu1, RESET1_PIN, 1, CS1_PIN, INT1_PIN, "IMU1");
     setup_imu(&imu3, RESET3_PIN, 3, CS3_PIN, INT3_PIN, "IMU3");
 
     while (true) {
