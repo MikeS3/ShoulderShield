@@ -23,116 +23,92 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/spi.h"
-#include "hardware/gpio.h"
-#include "sh2.h"
-#include "sh2_SensorValue.h"
+##include "sh2.h"
 #include "sh2_err.h"
+#include "sh2_hal.h"
+#include "sh2_SensorValue.h"
+#include "pico/stdlib.h"
+#include "hardware/spi.h"
 
-/* Additional Activities not listed in SH-2 lib */
-#define PAC_ON_STAIRS 8 ///< Activity code for being on stairs
-#define PAC_OPTION_COUNT 9 ///< The number of current options for the activity classifier
-#define BNO08x_I2CADDR_DEFAULT 0x4A
-/*!
- *    @brief  Struct that stores state and functions for interacting with
- *            the BNO08x 9-DOF Orientation IMU Fusion Breakout on Raspberry Pi Pico
- *            Supports multiple instances for multi-IMU setups
+#ifdef __cplusplus
+extern "C" {
+#endif
+/**
+ * @brief BNO08x device state and configuration for a single instance
+ *
+ * Each BNO08x instance holds its own SPI config, SH2 HAL, interrupt, and
+ * pending sensor data, allowing true multi-IMU use.
  */
 typedef struct {
-    // SPI Hardware interface
-    spi_inst_t *spi_port;
-    
-    // SPI Pin configurations
-    uint8_t cs_pin;
-    uint8_t int_pin;
+      // Hardware SPI config
+    spi_inst_t *spi_port;     ///< SPI port (e.g., spi0 or spi1)
+    uint8_t cs_pin;           ///< Chip select pin (active low)
+    uint8_t int_pin;          ///< Interrupt pin (active low)
+    uint8_t reset_pin;        ///< Reset pin (active low)
+    uint32_t spi_frequency;   ///< SPI clock speed in Hz
+    int instance_id;          ///< Optional user-specified instance ID
     uint8_t mosi_pin;
     uint8_t miso_pin;
     uint8_t sck_pin;
     
-    // Reset pin
-    int8_t reset_pin;
-    
-    // SPI settings
-    uint32_t spi_speed;
-    
-    // SH2 HAL (must have .cookie field for multi-IMU support)
+    // SH2 HAL layer (each instance gets its own)
     sh2_Hal_t hal;
-    
-    // Product IDs
-    sh2_ProductIds_t prodIds;
-    
-    // Reset flag
-    bool reset_occurred;
-    
-    // Instance identifier (useful for debugging multi-IMU setups)
-    uint8_t instance_id;
+
+    // Sensor value buffer
+    sh2_SensorValue_t sensor_value;      ///< Most recent sensor data
+    sh2_SensorValue_t *pending_value;    ///< Pointer to data ready to be read
+
+    // State flags
+    bool initialized;
+    bool spi_begun;
+    bool has_reset;
+
+    // Timing
+    uint32_t last_reset_time_us;
+    uint32_t last_service_time_us;
     
 } Pico_BNO08x_t;
 
 // Function prototypes
-
 /**
- * @brief Initialize BNO08x instance structure
- * @param bno Pointer to BNO08x instance
- * @param reset_pin GPIO pin for reset (-1 if not used)
- * @param instance_id Unique ID for this IMU instance
- * @return true if successful, false otherwise
+ * @brief Initialize BNO08x instance (does not start SPI)
  */
-bool pico_bno08x_init(Pico_BNO08x_t *bno, int8_t reset_pin, uint8_t instance_id);
+bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id);
 
 /**
- * @brief Initialize BNO08x with SPI interface
- * @param bno Pointer to BNO08x instance
- * @param spi_port SPI port (spi0 or spi1)
- * @param miso_pin MISO GPIO pin
- * @param mosi_pin MOSI GPIO pin
- * @param sck_pin SCK GPIO pin
- * @param cs_pin Chip select GPIO pin
- * @param int_pin Interrupt GPIO pin
- * @param spi_speed SPI clock speed in Hz
- * @return true if successful, false otherwise
+ * @brief Start SPI communication and register SH2 callbacks
  */
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
-                          uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
-                          uint8_t cs_pin, uint8_t int_pin, uint32_t spi_speed);
+                           uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
+                           uint8_t cs_pin, uint8_t int_pin, uint32_t frequency);
 
-/**
- * @brief Perform hardware reset of the IMU
- * @param bno Pointer to BNO08x instance
- */
-void pico_bno08x_hardware_reset(Pico_BNO08x_t *bno);
-
-/**
- * @brief Check if IMU was reset
- * @param bno Pointer to BNO08x instance
- * @return true if reset occurred, false otherwise
- */
-bool pico_bno08x_was_reset(Pico_BNO08x_t *bno);
-
-/**
- * @brief Enable a sensor report
- * @param bno Pointer to BNO08x instance
- * @param sensor_id Sensor ID to enable
- * @param interval_us Report interval in microseconds
- * @return true if successful, false otherwise
- */
-bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us);
-
-/**
- * @brief Get sensor event/reading
- * @param bno Pointer to BNO08x instance
- * @param value Pointer to store sensor value
- * @return true if event received, false otherwise
- */
-bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value);
-
-/**
- * @brief Service the IMU (call regularly in main loop)
- * @param bno Pointer to BNO08x instance
- */
+// Service function (replaces set_active pattern)
 void pico_bno08x_service(Pico_BNO08x_t *bno);
 
-// multi‑IMU “active” selector
-void pico_bno08x_set_active(Pico_BNO08x_t *bno);
+// Sensor configuration
+bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us);
+bool pico_bno08x_disable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id);
 
+// Data retrieval
+bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value);
+bool pico_bno08x_data_available(Pico_BNO08x_t *bno);
+
+// Utility functions
+void pico_bno08x_reset(Pico_BNO08x_t *bno);
+bool pico_bno08x_soft_reset(Pico_BNO08x_t *bno);
+
+// HAL callback functions (instance-aware via cookie)
+int pico_bno08x_hal_read(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len, uint32_t *t_us);
+int pico_bno08x_hal_write(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len);
+uint32_t pico_bno08x_hal_get_time_us(sh2_Hal_t *self);
+
+// SH2 callback functions (instance-aware via cookie)
+void pico_bno08x_sensor_event(void *cookie, sh2_SensorEvent_t *pEvent);
+void pico_bno08x_sensor_value(void *cookie, sh2_SensorValue_t *pValue);
+
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif // PICO_BNO08X_H
