@@ -23,7 +23,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "pico/stdlib.h"
-##include "sh2.h"
+#include "sh2.h"
 #include "sh2_err.h"
 #include "sh2_hal.h"
 #include "sh2_SensorValue.h"
