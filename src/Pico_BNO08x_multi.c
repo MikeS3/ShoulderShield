@@ -172,3 +172,15 @@ static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
     gpio_put(bno->cs_pin, 1);
     return ret;
 }
+
+static void hardware_reset(Pico_BNO08x_t *bno) {
+    if (!bno || bno->reset_pin < 0) return;
+    gpio_init(bno->reset_pin);
+    gpio_set_dir(bno->reset_pin, GPIO_OUT);
+    gpio_put(bno->reset_pin, 1);
+    sleep_ms(1);
+    gpio_put(bno->reset_pin, 0); // Active-low reset
+    sleep_ms(10); // Hold reset low for 10ms
+    gpio_put(bno->reset_pin, 1); // Release reset
+    sleep_ms(50); // Wait for chip to boot up
+}
