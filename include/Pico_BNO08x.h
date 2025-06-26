@@ -132,4 +132,7 @@ bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value);
  */
 void pico_bno08x_service(Pico_BNO08x_t *bno);
 
+// multi‑IMU “active” selector
+void pico_bno08x_set_active(Pico_BNO08x_t *bno);
+
 #endif
