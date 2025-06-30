@@ -11,8 +11,8 @@ pico_sdk_init()
 # Example: Multi-IMU BNO08x Demo with Multi-Instance Support
 # ------------------------------
 add_executable(Simple_test_3Imu
-    3IMUmain_fixed.c
-    Pico_BNO08x_multi_fixed.c
+    3IMUmain.c
+    Pico_BNO08x_multi.c
     sh2_multi.c
     sh2.c
     sh2_SensorValue.c
@@ -27,6 +27,7 @@ pico_enable_stdio_uart(Simple_test_3Imu 1)
 # Include directories (SDK and project)
 target_include_directories(Simple_test_3Imu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
 # Link against Pico libraries (including I2C support)

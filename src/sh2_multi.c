@@ -1,6 +1,7 @@
 /* sh2_multi.c - Multi-instance wrapper for SH2 library */
 
 #include "sh2_multi.h"
+#include "sh2_err.h"   // Add this for SH2_OK, SH2_ERR, etc.
 #include <string.h>
 #include <stdio.h>
 
@@ -150,4 +151,15 @@ int sh2_multi_setSensorConfig(int instance_id, sh2_SensorId_t sensorId, const sh
            (result == SH2_OK) ? "OK" : "FAILED");
     
     return result;
+}
+
+// Backup and restore functions (placeholders for future enhancement)
+void sh2_multi_backup_state(int instance_id) {
+    // TODO: Implement state backup if needed
+    (void)instance_id;
+}
+
+void sh2_multi_restore_state(int instance_id) {
+    // TODO: Implement state restore if needed  
+    (void)instance_id;
 }

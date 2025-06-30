@@ -3,6 +3,7 @@
 #define SH2_MULTI_H
 
 #include "sh2.h"
+#include "sh2_err.h"     // Add this for error constants
 #include "sh2_SensorValue.h"
 
 #ifdef __cplusplus

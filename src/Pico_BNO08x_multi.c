@@ -101,7 +101,7 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
     bno->hal.write = spi_hal_write;
     
     // Initialize SH2 layer with multi-instance wrapper
-    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != SH2_OK) {
+    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != 0) {
         printf("Failed to open SH2 multi-instance %d\n", bno->instance_id);
         return false;
     }
@@ -142,7 +142,7 @@ bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
     bno->hal.write = i2c_hal_write;
     
     // Initialize SH2 layer with multi-instance wrapper
-    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != SH2_OK) {
+    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != 0) {
         printf("Failed to open SH2 multi-instance %d\n", bno->instance_id);
         return false;
     }
@@ -179,7 +179,7 @@ bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uin
     
     // Use multi-instance wrapper to configure sensor
     int result = sh2_multi_setSensorConfig(bno->instance_id, sensor_id, &cfg);
-    return (result == SH2_OK);
+    return (result == 0);
 }
 
 bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
@@ -243,7 +243,7 @@ static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
 
 static int spi_hal_open(sh2_Hal_t *self) { 
     (void)self; 
-    return SH2_OK; 
+    return 0; 
 }
 
 static void spi_hal_close(sh2_Hal_t *self) { 
