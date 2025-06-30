@@ -1,4 +1,4 @@
-/* Pico_BNO08x_multi.c - Multi-IMU SPI driver for Raspberry Pi Pico */
+/* Pico_BNO08x_multi.c - Multi-IMU SPI/I2C driver for Raspberry Pi Pico */
 
 #include <stdio.h>
 #include "Pico_BNO08x.h"
@@ -6,21 +6,30 @@
 #include <stddef.h>
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
+#include "hardware/i2c.h"
 #include "hardware/gpio.h"
 
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
 
+// Forward declarations
 static void hardware_reset(Pico_BNO08x_t *bno);
 static uint32_t hal_get_time_us(sh2_Hal_t *self);
 static void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
 static void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
 
+// SPI HAL functions
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno);
 static int spi_hal_open(sh2_Hal_t *self);
 static void spi_hal_close(sh2_Hal_t *self);
 static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us);
 static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len);
+
+// I2C HAL functions
+static int i2c_hal_open(sh2_Hal_t *self);
+static void i2c_hal_close(sh2_Hal_t *self);
+static int i2c_hal_read(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len, uint32_t *t_us);
+static int i2c_hal_write(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len);
 
 bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
     if (!bno) return false;
@@ -28,12 +37,11 @@ bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
     bno->reset_pin = reset_pin;
     bno->instance_id = instance_id;
     bno->spi_frequency = 1000000;
+    bno->i2c_speed = 400000;
+    bno->i2c_addr = BNO08x_I2CADDR_DEFAULT;
+    bno->interface_type = INTERFACE_NONE;
     bno->has_reset = false;
-    bno->hal.getTimeUs = hal_get_time_us;
-    bno->hal.open = spi_hal_open;
-    bno->hal.close = spi_hal_close;
-    bno->hal.read = spi_hal_read;
-    bno->hal.write = spi_hal_write;
+    bno->reset_occurred = false;
     bno->hal.getTimeUs = hal_get_time_us;
     bno->pending_value = &bno->sensor_value;
     return true;
@@ -52,71 +60,119 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
     bno->cs_pin = cs;
     bno->int_pin = irq;
     bno->spi_frequency = speed;
-
-    static bool spi0done = false, spi1done = false;
-    if (spi == spi0 && !spi0done) {
-        gpio_set_function(miso, GPIO_FUNC_SPI);
-        gpio_set_function(mosi, GPIO_FUNC_SPI);
-        gpio_set_function(sck,  GPIO_FUNC_SPI);
-        spi_init(spi0, speed);
-        spi_set_format(spi0, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
-        spi0done = true;
-    }
-    if (spi == spi1 && !spi1done) {
-        gpio_set_function(miso, GPIO_FUNC_SPI);
-        gpio_set_function(mosi, GPIO_FUNC_SPI);
-        gpio_set_function(sck,  GPIO_FUNC_SPI);
-        spi_init(spi1, speed);
-        spi_set_format(spi1, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
-        spi1done = true;
-    }
-
-    gpio_init(cs);    gpio_set_dir(cs, GPIO_OUT); gpio_put(cs, 1);
-    gpio_init(irq);   gpio_set_dir(irq, GPIO_IN); gpio_pull_up(irq);
-    gpio_put(bno->cs_pin, 1);               // make sure CS is high
-
-    hardware_reset(bno);
-    sleep_ms(200);    // give the chip 200 ms to come fully alive
-    printf("[DEBUG] IMU%d: reset complete, now sh2_open()\n", bno->instance_id);
-        int rc = sh2_open(&bno->hal, hal_callback, bno);
-    printf("[DEBUG] IMU%d: sh2_open returned %d\n", bno->instance_id, rc);
-    if (rc != SH2_OK) {
-        return false;
-    }
+    bno->interface_type = INTERFACE_SPI;
+    
+    // Setup CS pin
+    gpio_init(cs);
+    gpio_set_dir(cs, GPIO_OUT);
+    gpio_put(cs, 1); // CS high (inactive)
+    
+    // Setup interrupt pin
+    gpio_init(irq);
+    gpio_set_dir(irq, GPIO_IN);
+    gpio_pull_up(irq);
+    
+    // Setup HAL functions for SPI
+    bno->hal.open = spi_hal_open;
+    bno->hal.close = spi_hal_close;
+    bno->hal.read = spi_hal_read;
+    bno->hal.write = spi_hal_write;
+    
+    // Initialize SH2 layer
+    sh2_hal_init(&bno->hal, bno);
+    sh2_open(&bno->hal, hal_callback, bno);
     sh2_setSensorCallback(sensor_handler, bno);
-    printf("IMU %d initialized\n", bno->instance_id);
-    return true;    // <-- GOOD: returns true on SH2_OK
+    
+    return true;
 }
 
-
-bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
-    if (!bno || !val) return false;
-    bno->pending_value = val;
-    val->timestamp = 0;
-    sh2_service();
-    bno->pending_value = &bno->sensor_value;
-    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
+bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
+                           uint8_t sda_pin, uint8_t scl_pin,
+                           uint8_t i2c_addr, uint32_t i2c_speed) {
+    if (!bno || !i2c_port) return false;
+    
+    bno->i2c_port = i2c_port;
+    bno->sda_pin = sda_pin;
+    bno->scl_pin = scl_pin;
+    bno->i2c_addr = i2c_addr;
+    bno->i2c_speed = i2c_speed;
+    bno->interface_type = INTERFACE_I2C;
+    
+    // Setup I2C pins
+    gpio_set_function(sda_pin, GPIO_FUNC_I2C);
+    gpio_set_function(scl_pin, GPIO_FUNC_I2C);
+    gpio_pull_up(sda_pin);
+    gpio_pull_up(scl_pin);
+    
+    // Initialize I2C
+    i2c_init(i2c_port, i2c_speed);
+    
+    // Setup HAL functions for I2C
+    bno->hal.open = i2c_hal_open;
+    bno->hal.close = i2c_hal_close;
+    bno->hal.read = i2c_hal_read;
+    bno->hal.write = i2c_hal_write;
+    
+    // Initialize SH2 layer
+    sh2_hal_init(&bno->hal, bno);
+    sh2_open(&bno->hal, hal_callback, bno);
+    sh2_setSensorCallback(sensor_handler, bno);
+    
+    return true;
 }
 
 void pico_bno08x_service(Pico_BNO08x_t *bno) {
+    if (!bno) return;
+    
+    // Set this instance as active for HAL callbacks
+    sh2_hal_init(&bno->hal, bno);
     sh2_service();
 }
 
-bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t id, uint32_t iu) {
-    sh2_SensorConfig_t cfg = {
-        .changeSensitivityEnabled  = false,
-        .wakeupEnabled             = false,
-        .changeSensitivityRelative = false,
-        .alwaysOnEnabled           = false,
-        .changeSensitivity         = 0,
-        .batchInterval_us          = 0,
-        .sensorSpecific            = 0,
-        .reportInterval_us         = iu
-    };
-    return (sh2_setSensorConfig(id, &cfg) == SH2_OK);
+void hardware_reset(Pico_BNO08x_t *bno) {
+    if (!bno || bno->reset_pin < 0) return;
+    
+    gpio_init(bno->reset_pin);
+    gpio_set_dir(bno->reset_pin, GPIO_OUT);
+    gpio_put(bno->reset_pin, 0);
+    sleep_ms(10);
+    gpio_put(bno->reset_pin, 1);
+    sleep_ms(50);
+    bno->has_reset = true;
 }
 
-// HAL callbacks
+bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us) {
+    if (!bno) return false;
+    
+    // Set this instance as active for HAL callbacks
+    sh2_hal_init(&bno->hal, bno);
+    
+    sh2_SensorConfig_t cfg = {
+        .changeSensitivityEnabled = false,
+        .wakeupEnabled = false,
+        .changeSensitivityRelative = false,
+        .alwaysOnEnabled = false,
+        .changeSensitivity = 0,
+        .reportInterval_us = interval_us,
+        .batchInterval_us = 0
+    };
+    return (sh2_setSensorConfig(sensor_id, &cfg) == SH2_OK);
+}
+
+bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
+    if (!bno || !value) return false;
+    
+    if (bno->pending_value->timestamp == 0 && 
+        bno->pending_value->sensorId != SH2_GYRO_INTEGRATED_RV) {
+        return false;
+    }
+    
+    *value = *bno->pending_value;
+    bno->pending_value->timestamp = 0; // Mark as consumed
+    return true;
+}
+
+// HAL callback functions
 static uint32_t hal_get_time_us(sh2_Hal_t *self) {
     (void)self;
     return time_us_32();
@@ -133,34 +189,27 @@ static void sensor_handler(void *cookie, sh2_SensorEvent_t *evt) {
         bno->pending_value->timestamp = 0;
 }
 
-static int spi_hal_open(sh2_Hal_t *self) { (void)self; return SH2_OK; }
-static void spi_hal_close(sh2_Hal_t *self) { (void)self; }
-#define INT_TIMEOUT_MS 2000
-#define INT_STABLE_MS    10
-
+// SPI HAL Implementation
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
-    int stable = 0;
-    for (int i = 0; i < INT_TIMEOUT_MS; i++) {
-        if (!gpio_get(bno->int_pin)) {
-            if (++stable >= INT_STABLE_MS) return true;
-        } else {
-            stable = 0;
-        }
+    for (int i = 0; i < 500; i++) {
+        if (!gpio_get(bno->int_pin)) return true;
         sleep_ms(1);
     }
-    printf("[WARN] IMU%d: INT never stayed low for %d ms\n",
-           bno->instance_id, INT_TIMEOUT_MS);
     hardware_reset(bno);
     return false;
 }
 
-static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us) {
-    Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
-    if (!spi_hal_wait_for_int(bno)) {
-    printf("[WARN] IMU%d: timeout waiting for INT before SPI\n", bno->instance_id);
-    return 0;
+static int spi_hal_open(sh2_Hal_t *self) { 
+    (void)self; 
+    return SH2_OK; 
 }
 
+static void spi_hal_close(sh2_Hal_t *self) { 
+    (void)self; 
+}
+
+static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us) {
+    Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
     gpio_put(bno->cs_pin, 0);
     int ret = spi_read_blocking(bno->spi_port, 0x00, buf, len);
     gpio_put(bno->cs_pin, 1);
@@ -170,26 +219,77 @@ static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t
 
 static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
-    if (!spi_hal_wait_for_int(bno)) {
-    printf("[WARN] IMU%d: timeout waiting for INT before SPI\n", bno->instance_id);
-    return 0;
-}
-
     gpio_put(bno->cs_pin, 0);
     int ret = spi_write_blocking(bno->spi_port, buf, len);
     gpio_put(bno->cs_pin, 1);
     return ret;
 }
 
-void hardware_reset(Pico_BNO08x_t *bno) {
-    gpio_init(bno->reset_pin);
-    gpio_set_dir(bno->reset_pin, GPIO_OUT);
-    gpio_put(bno->reset_pin, 0);
-    sleep_ms(20);
-    gpio_put(bno->reset_pin, 1);
-    sleep_ms(100);
+// I2C HAL Implementation
+static int i2c_hal_open(sh2_Hal_t *self) {
+    Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
+    if (!bno) return -1;
+    
+    // Send soft reset packet
+    uint8_t softreset_pkt[] = {5, 0, 1, 0, 1};
+    int result = i2c_write_blocking(bno->i2c_port, bno->i2c_addr, 
+                                   softreset_pkt, 5, false);
+    if (result < 0) return -1;
+    
+    sleep_ms(300);
+    return 0;
 }
 
-void pico_bno08x_reset(Pico_BNO08x_t *bno) {
-    hardware_reset(bno);
+static void i2c_hal_close(sh2_Hal_t *self) {
+    // Nothing to do for I2C close
+    (void)self;
+}
+
+static int i2c_hal_read(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len, uint32_t *t_us) {
+    Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
+    if (!bno || !pBuffer) return 0;
+    
+    uint8_t header[4];
+    int result = i2c_read_blocking(bno->i2c_port, bno->i2c_addr, 
+                                  header, 4, false);
+    if (result < 0) return 0;
+    
+    uint16_t packet_size = (uint16_t)header[0] | ((uint16_t)header[1] << 8);
+    packet_size &= ~0x8000; // Clear continuation bit
+    
+    if (packet_size > len) return 0;
+    
+    // Read the rest of the packet
+    uint16_t cargo_remaining = packet_size;
+    uint16_t read_pos = 0;
+    
+    // Copy header first
+    if (cargo_remaining >= 4) {
+        memcpy(pBuffer, header, 4);
+        read_pos = 4;
+        cargo_remaining -= 4;
+    }
+    
+    // Read remaining data
+    while (cargo_remaining > 0) {
+        uint16_t to_read = (cargo_remaining > 252) ? 252 : cargo_remaining;
+        result = i2c_read_blocking(bno->i2c_port, bno->i2c_addr,
+                                  pBuffer + read_pos, to_read, false);
+        if (result < 0) return 0;
+        
+        read_pos += to_read;
+        cargo_remaining -= to_read;
+    }
+    
+    if (t_us) *t_us = time_us_32();
+    return packet_size;
+}
+
+static int i2c_hal_write(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len) {
+    Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
+    if (!bno || !pBuffer) return 0;
+    
+    int result = i2c_write_blocking(bno->i2c_port, bno->i2c_addr,
+                                   pBuffer, len, false);
+    return (result < 0) ? 0 : len;
 }
