@@ -28,41 +28,119 @@ Pico_BNO08x_t imu1, imu2, imu3;
 bool imu1_ok = false, imu2_ok = false, imu3_ok = false;
 
 /**
- * @brief Setup and initialize a single IMU
+ * @brief Ensure all other IMUs are held in reset during initialization
  */
-bool setup_imu(Pico_BNO08x_t *imu, int reset_pin, int instance_id,
-               uint8_t cs_pin, uint8_t int_pin, const char *label) {
-    printf("[INIT] Setting up %s (ID: %d)\n", label, instance_id);
+void reset_all_other_imus(int exclude_reset_pin) {
+    // Put all IMUs in reset except the one we're initializing
+    if (exclude_reset_pin != RESET1_PIN) {
+        gpio_init(RESET1_PIN);
+        gpio_set_dir(RESET1_PIN, GPIO_OUT);
+        gpio_put(RESET1_PIN, 0);  // Hold in reset
+    }
+    if (exclude_reset_pin != RESET2_PIN) {
+        gpio_init(RESET2_PIN);
+        gpio_set_dir(RESET2_PIN, GPIO_OUT);
+        gpio_put(RESET2_PIN, 0);  // Hold in reset
+    }
+    if (exclude_reset_pin != RESET3_PIN) {
+        gpio_init(RESET3_PIN);
+        gpio_set_dir(RESET3_PIN, GPIO_OUT);
+        gpio_put(RESET3_PIN, 0);  // Hold in reset
+    }
+    sleep_ms(50);  // Ensure they're properly in reset
+}
+
+/**
+ * @brief Setup and initialize a single IMU with better isolation
+ */
+bool setup_imu_isolated(Pico_BNO08x_t *imu, int reset_pin, int instance_id,
+                        uint8_t cs_pin, uint8_t int_pin, const char *label) {
+    printf("\n[INIT] === Setting up %s (ID: %d) ===\n", label, instance_id);
     
-    // Initialize the IMU structure
+    // Step 1: Hold all other IMUs in reset to prevent SPI interference
+    printf("[INIT] %s: Putting other IMUs in reset...\n", label);
+    reset_all_other_imus(reset_pin);
+    
+    // Step 2: Initialize the IMU structure
+    printf("[INIT] %s: Initializing IMU structure...\n", label);
     if (!pico_bno08x_init(imu, reset_pin, instance_id)) {
         printf("[ERROR] %s: pico_bno08x_init failed\n", label);
         return false;
     }
     
-    // Start SPI communication
-    if (!pico_bno08x_begin_spi(imu, SPI_PORT,
-                               SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                               cs_pin, int_pin, 1000000)) {
-        printf("[ERROR] %s: pico_bno08x_begin_spi failed\n", label);
+    // Step 3: Setup CS and INT pins early
+    printf("[INIT] %s: Setting up GPIO pins...\n", label);
+    gpio_init(cs_pin);
+    gpio_set_dir(cs_pin, GPIO_OUT);
+    gpio_put(cs_pin, 1);  // CS high (inactive)
+    
+    gpio_init(int_pin);
+    gpio_set_dir(int_pin, GPIO_IN);
+    gpio_pull_up(int_pin);
+    
+    // Step 4: Give extra time before starting SPI communication
+    sleep_ms(100);
+    
+    // Step 5: Start SPI communication with retries
+    printf("[INIT] %s: Starting SPI communication...\n", label);
+    bool spi_success = false;
+    for (int retry = 0; retry < 3; retry++) {
+        if (retry > 0) {
+            printf("[RETRY] %s: SPI attempt %d/3\n", label, retry + 1);
+            sleep_ms(200);
+        }
+        
+        if (pico_bno08x_begin_spi(imu, SPI_PORT,
+                                  SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
+                                  cs_pin, int_pin, 1000000)) {
+            spi_success = true;
+            break;
+        }
+    }
+    
+    if (!spi_success) {
+        printf("[ERROR] %s: All SPI attempts failed\n", label);
         return false;
     }
     
-    // Small delay to ensure IMU is ready
-    sleep_ms(100);
+    // Step 6: Wait for IMU to be fully ready
+    printf("[INIT] %s: Waiting for IMU to be ready...\n", label);
+    sleep_ms(300);
     
-    // Enable gyro integrated rotation vector (good for testing)
-    if (!pico_bno08x_enable_report(imu, SH2_GYRO_INTEGRATED_RV, 50000)) {  // 20Hz
-        printf("[WARN] %s: Failed to enable gyro integrated RV\n", label);
+    // Step 7: Enable sensors with retries
+    printf("[INIT] %s: Enabling sensors...\n", label);
+    bool sensor_success = false;
+    for (int retry = 0; retry < 3; retry++) {
+        if (retry > 0) {
+            printf("[RETRY] %s: Sensor enable attempt %d/3\n", label, retry + 1);
+            sleep_ms(100);
+        }
+        
+        // Try to enable gyro integrated rotation vector first (most reliable)
+        if (pico_bno08x_enable_report(imu, SH2_GYRO_INTEGRATED_RV, 50000)) {
+            sensor_success = true;
+            printf("[SUCCESS] %s: Gyro Integrated RV enabled\n", label);
+            break;
+        }
     }
     
-    // Enable regular rotation vector as backup
-    if (!pico_bno08x_enable_report(imu, SH2_ROTATION_VECTOR, 100000)) {  // 10Hz
-        printf("[WARN] %s: Failed to enable rotation vector\n", label);
+    if (!sensor_success) {
+        printf("[WARN] %s: Failed to enable gyro integrated RV, trying rotation vector\n", label);
+        // Fallback to regular rotation vector
+        if (pico_bno08x_enable_report(imu, SH2_ROTATION_VECTOR, 100000)) {
+            sensor_success = true;
+            printf("[SUCCESS] %s: Rotation Vector enabled as fallback\n", label);
+        }
     }
     
-    printf("[SUCCESS] %s: Initialized and configured\n", label);
-    return true;
+    // Step 8: Final verification
+    if (sensor_success) {
+        printf("[SUCCESS] %s: Fully initialized and configured\n", label);
+        return true;
+    } else {
+        printf("[ERROR] %s: Failed to enable any sensors\n", label);
+        return false;
+    }
 }
 
 /**
@@ -106,8 +184,8 @@ int main() {
     stdio_init_all();
     sleep_ms(3000);  // Wait for USB console to connect
     
-    printf("=== 3-IMU BNO085 Multi-Instance Test ===\n");
-    printf("Using Fixed SH2 Library with Multiple Instances\n\n");
+    printf("=== 3-IMU BNO085 Multi-Instance Test (FIXED) ===\n");
+    printf("Using Fixed SH2 Library with Better Isolation\n\n");
     
     // Setup shared SPI bus first
     printf("[INIT] Initializing shared SPI bus...\n");
@@ -117,27 +195,48 @@ int main() {
     gpio_set_function(SPI_MISO_PIN, GPIO_FUNC_SPI);
     gpio_set_function(SPI_MOSI_PIN, GPIO_FUNC_SPI);
     gpio_set_function(SPI_SCK_PIN, GPIO_FUNC_SPI);
-    printf("[SUCCESS] SPI bus initialized\n\n");
+    printf("[SUCCESS] SPI bus initialized\n");
     
-    // Initialize each IMU with delays between them
-    printf("=== Initializing IMUs ===\n");
+    // Initialize each IMU with complete isolation
+    printf("\n=== Initializing IMUs with Isolation ===\n");
     
-    imu1_ok = setup_imu(&imu1, RESET1_PIN, 1, CS1_PIN, INT1_PIN, "IMU1");
-    sleep_ms(500);  // Delay between IMUs
+    // Initialize IMU1 first (keep others in reset)
+    imu1_ok = setup_imu_isolated(&imu1, RESET1_PIN, 1, CS1_PIN, INT1_PIN, "IMU1");
+    sleep_ms(1000);  // Long delay between IMUs
     
-    imu2_ok = setup_imu(&imu2, RESET2_PIN, 2, CS2_PIN, INT2_PIN, "IMU2");
-    sleep_ms(500);  // Delay between IMUs
+    // Initialize IMU2 (keep others in reset)
+    imu2_ok = setup_imu_isolated(&imu2, RESET2_PIN, 2, CS2_PIN, INT2_PIN, "IMU2");
+    sleep_ms(1000);  // Long delay between IMUs
     
-    imu3_ok = setup_imu(&imu3, RESET3_PIN, 3, CS3_PIN, INT3_PIN, "IMU3");
-    sleep_ms(500);
+    // Initialize IMU3 (keep others in reset)
+    imu3_ok = setup_imu_isolated(&imu3, RESET3_PIN, 3, CS3_PIN, INT3_PIN, "IMU3");
+    sleep_ms(1000);
+    
+    // Now release all IMUs from reset so they can all operate
+    printf("\n[INIT] Releasing all IMUs from reset for normal operation...\n");
+    if (imu1_ok) {
+        gpio_put(RESET1_PIN, 1);
+        sleep_ms(100);
+    }
+    if (imu2_ok) {
+        gpio_put(RESET2_PIN, 1);
+        sleep_ms(100);
+    }
+    if (imu3_ok) {
+        gpio_put(RESET3_PIN, 1);
+        sleep_ms(100);
+    }
     
     printf("\n=== Initialization Summary ===\n");
-    printf("IMU1: %s\n", imu1_ok ? "OK" : "FAILED");
-    printf("IMU2: %s\n", imu2_ok ? "OK" : "FAILED");
-    printf("IMU3: %s\n", imu3_ok ? "OK" : "FAILED");
+    printf("IMU1: %s\n", imu1_ok ? "✓ OK" : "✗ FAILED");
+    printf("IMU2: %s\n", imu2_ok ? "✓ OK" : "✗ FAILED");
+    printf("IMU3: %s\n", imu3_ok ? "✓ OK" : "✗ FAILED");
     
-    if (!imu1_ok && !imu2_ok && !imu3_ok) {
-        printf("\n[ERROR] All IMUs failed to initialize!\n");
+    int working_imus = (imu1_ok ? 1 : 0) + (imu2_ok ? 1 : 0) + (imu3_ok ? 1 : 0);
+    printf("Working IMUs: %d/3\n", working_imus);
+    
+    if (working_imus == 0) {
+        printf("\n[ERROR] No IMUs working! Check connections and power.\n");
         return -1;
     }
     
@@ -146,7 +245,7 @@ int main() {
     
     // Main data collection loop
     uint32_t last_print = 0;
-    uint32_t print_interval = 500000;  // 500ms
+    uint32_t print_interval = 1000000;  // 1 second
     
     while (true) {
         uint32_t now = time_us_32();
@@ -166,18 +265,13 @@ int main() {
         
         // Print separator periodically
         if (now - last_print > print_interval) {
-            printf("--- %lu ms ---\n", now / 1000);
+            printf("--- %lu ms --- (%d IMUs active)\n", now / 1000, working_imus);
             last_print = now;
         }
         
-        // Small delay to prevent overwhelming the console
-        sleep_ms(50);
+        // Delay to prevent overwhelming the console
+        sleep_ms(100);
     }
-    
-    // Cleanup (though we never reach here)
-    if (imu1_ok) pico_bno08x_destroy(&imu1);
-    if (imu2_ok) pico_bno08x_destroy(&imu2);
-    if (imu3_ok) pico_bno08x_destroy(&imu3);
     
     return 0;
 }
