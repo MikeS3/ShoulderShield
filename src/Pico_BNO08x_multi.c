@@ -1,14 +1,8 @@
-/* Pico_BNO08x_multi.c - Multi-IMU SPI/I2C driver with SH2 multi-instance support */
+/* Pico_BNO08x_multi.c - Simple 3-IMU driver using working single-IMU pattern */
 
-#include <stdio.h>
 #include "Pico_BNO08x.h"
-#include "sh2_multi.h"  // Use multi-instance wrapper
 #include <string.h>
 #include <stddef.h>
-#include "pico/stdlib.h"
-#include "hardware/spi.h"
-#include "hardware/i2c.h"
-#include "hardware/gpio.h"
 
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
@@ -20,7 +14,6 @@ static void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
 static void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
 
 // SPI HAL functions
-static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno);
 static int spi_hal_open(sh2_Hal_t *self);
 static void spi_hal_close(sh2_Hal_t *self);
 static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us);
@@ -32,96 +25,99 @@ static void i2c_hal_close(sh2_Hal_t *self);
 static int i2c_hal_read(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len, uint32_t *t_us);
 static int i2c_hal_write(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len);
 
-bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
-    if (!bno) return false;
+bool pico_bno08x_init_spi(Pico_BNO08x_t *bno, int8_t reset_pin, int instance_id,
+                          spi_inst_t *spi_port, uint8_t miso_pin, uint8_t mosi_pin, uint8_t sck_pin,
+                          uint8_t cs_pin, uint8_t int_pin, uint32_t spi_speed) {
+    if (!bno || !spi_port) return false;
+    
+    // Clear structure
     memset(bno, 0, sizeof(*bno));
+    
+    // Set basic info
     bno->reset_pin = reset_pin;
     bno->instance_id = instance_id;
-    bno->spi_frequency = 1000000;
-    bno->i2c_speed = 400000;
-    bno->i2c_addr = BNO08x_I2CADDR_DEFAULT;
-    bno->interface_type = INTERFACE_NONE;
-    bno->has_reset = false;
-    bno->reset_occurred = false;
-    bno->hal.getTimeUs = hal_get_time_us;
-    bno->pending_value = &bno->sensor_value;
-    return true;
-}
-
-bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
-                           spi_inst_t *spi,
-                           uint8_t miso, uint8_t mosi, uint8_t sck,
-                           uint8_t cs, uint8_t irq,
-                           uint32_t speed) {
-    if (!bno || !spi) return false;
-    bno->spi_port = spi;
-    bno->miso_pin = miso;
-    bno->mosi_pin = mosi;
-    bno->sck_pin = sck;
-    bno->cs_pin = cs;
-    bno->int_pin = irq;
-    bno->spi_frequency = speed;
     bno->interface_type = INTERFACE_SPI;
+    bno->pending_value = &bno->sensor_value;
     
-    // Initialize SPI bus (following mainOld.c pattern)
+    // Set SPI info
+    bno->spi_port = spi_port;
+    bno->miso_pin = miso_pin;
+    bno->mosi_pin = mosi_pin;
+    bno->sck_pin = sck_pin;
+    bno->cs_pin = cs_pin;
+    bno->int_pin = int_pin;
+    bno->spi_speed = spi_speed;
+    
+    // Initialize SPI bus (using working mainOld.c pattern)
     static bool spi0done = false, spi1done = false;
-    if (spi == spi0 && !spi0done) {
-        gpio_set_function(miso, GPIO_FUNC_SPI);
-        gpio_set_function(mosi, GPIO_FUNC_SPI);
-        gpio_set_function(sck, GPIO_FUNC_SPI);
-        spi_init(spi0, speed);
+    if (spi_port == spi0 && !spi0done) {
+        gpio_set_function(miso_pin, GPIO_FUNC_SPI);
+        gpio_set_function(mosi_pin, GPIO_FUNC_SPI);
+        gpio_set_function(sck_pin, GPIO_FUNC_SPI);
+        spi_init(spi0, spi_speed);
         spi_set_format(spi0, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
         spi0done = true;
     }
-    if (spi == spi1 && !spi1done) {
-        gpio_set_function(miso, GPIO_FUNC_SPI);
-        gpio_set_function(mosi, GPIO_FUNC_SPI);
-        gpio_set_function(sck, GPIO_FUNC_SPI);
-        spi_init(spi1, speed);
+    if (spi_port == spi1 && !spi1done) {
+        gpio_set_function(miso_pin, GPIO_FUNC_SPI);
+        gpio_set_function(mosi_pin, GPIO_FUNC_SPI);
+        gpio_set_function(sck_pin, GPIO_FUNC_SPI);
+        spi_init(spi1, spi_speed);
         spi_set_format(spi1, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
         spi1done = true;
     }
     
-    // Setup CS and INT pins
-    gpio_init(cs);
-    gpio_set_dir(cs, GPIO_OUT);
-    gpio_put(cs, 1); // CS high (inactive)
+    // Setup pins
+    gpio_init(cs_pin);
+    gpio_set_dir(cs_pin, GPIO_OUT);
+    gpio_put(cs_pin, 1); // CS high (inactive)
     
-    gpio_init(irq);
-    gpio_set_dir(irq, GPIO_IN);
-    gpio_pull_up(irq);
+    gpio_init(int_pin);
+    gpio_set_dir(int_pin, GPIO_IN);
+    gpio_pull_up(int_pin);
     
     // Hardware reset
     hardware_reset(bno);
     
-    // Setup HAL functions for SPI
+    // Setup HAL functions
+    bno->hal.getTimeUs = hal_get_time_us;
     bno->hal.open = spi_hal_open;
     bno->hal.close = spi_hal_close;
     bno->hal.read = spi_hal_read;
     bno->hal.write = spi_hal_write;
     
-    // Initialize SH2 layer with multi-instance wrapper
-    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != 0) {
-        printf("Failed to open SH2 multi-instance %d\n", bno->instance_id);
+    // Initialize SH2 (each IMU gets its own separate SH2 instance - this is the key!)
+    if (sh2_open(&bno->hal, hal_callback, bno) != SH2_OK) {
+        printf("Failed to open SH2 for IMU %d\n", instance_id);
         return false;
     }
-    sh2_multi_setSensorCallback(bno->instance_id, sensor_handler, bno);
+    sh2_setSensorCallback(sensor_handler, bno);
     
-    printf("IMU %d (SPI) initialized successfully\n", bno->instance_id);
+    printf("IMU %d (SPI) initialized successfully\n", instance_id);
+    bno->initialized = true;
     return true;
 }
 
-bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
-                           uint8_t sda_pin, uint8_t scl_pin,
-                           uint8_t i2c_addr, uint32_t i2c_speed) {
+bool pico_bno08x_init_i2c(Pico_BNO08x_t *bno, int8_t reset_pin, int instance_id,
+                          i2c_inst_t *i2c_port, uint8_t sda_pin, uint8_t scl_pin, 
+                          uint8_t i2c_addr, uint32_t i2c_speed) {
     if (!bno || !i2c_port) return false;
     
+    // Clear structure
+    memset(bno, 0, sizeof(*bno));
+    
+    // Set basic info
+    bno->reset_pin = reset_pin;
+    bno->instance_id = instance_id;
+    bno->interface_type = INTERFACE_I2C;
+    bno->pending_value = &bno->sensor_value;
+    
+    // Set I2C info
     bno->i2c_port = i2c_port;
     bno->sda_pin = sda_pin;
     bno->scl_pin = scl_pin;
     bno->i2c_addr = i2c_addr;
     bno->i2c_speed = i2c_speed;
-    bno->interface_type = INTERFACE_I2C;
     
     // Setup I2C pins
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
@@ -135,37 +131,27 @@ bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
     // Hardware reset
     hardware_reset(bno);
     
-    // Setup HAL functions for I2C
+    // Setup HAL functions
+    bno->hal.getTimeUs = hal_get_time_us;
     bno->hal.open = i2c_hal_open;
     bno->hal.close = i2c_hal_close;
     bno->hal.read = i2c_hal_read;
     bno->hal.write = i2c_hal_write;
     
-    // Initialize SH2 layer with multi-instance wrapper
-    if (sh2_multi_open(bno->instance_id, &bno->hal, hal_callback, bno) != 0) {
-        printf("Failed to open SH2 multi-instance %d\n", bno->instance_id);
+    // Initialize SH2 (each IMU gets its own separate SH2 instance - this is the key!)
+    if (sh2_open(&bno->hal, hal_callback, bno) != SH2_OK) {
+        printf("Failed to open SH2 for IMU %d\n", instance_id);
         return false;
     }
-    sh2_multi_setSensorCallback(bno->instance_id, sensor_handler, bno);
+    sh2_setSensorCallback(sensor_handler, bno);
     
-    printf("IMU %d (I2C) initialized successfully\n", bno->instance_id);
+    printf("IMU %d (I2C) initialized successfully\n", instance_id);
+    bno->initialized = true;
     return true;
 }
 
-void pico_bno08x_service(Pico_BNO08x_t *bno) {
-    if (!bno) return;
-    // Service this specific instance using the multi-instance wrapper
-    sh2_multi_service(bno->instance_id);
-}
-
-void pico_bno08x_set_active(Pico_BNO08x_t *bno) {
-    if (!bno) return;
-    // Set this instance as active
-    sh2_multi_set_active(bno->instance_id);
-}
-
 bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us) {
-    if (!bno) return false;
+    if (!bno || !bno->initialized) return false;
     
     sh2_SensorConfig_t cfg = {
         .changeSensitivityEnabled = false,
@@ -177,31 +163,32 @@ bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uin
         .batchInterval_us = 0
     };
     
-    // Use multi-instance wrapper to configure sensor
-    int result = sh2_multi_setSensorConfig(bno->instance_id, sensor_id, &cfg);
-    return (result == 0);
+    int result = sh2_setSensorConfig(sensor_id, &cfg);
+    printf("IMU %d sensor %d config: %s\n", bno->instance_id, sensor_id, 
+           (result == SH2_OK) ? "OK" : "FAILED");
+    
+    return (result == SH2_OK);
 }
 
-bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *value) {
-    if (!bno || !value) return false;
+// This is the key function from mainOld.c that actually works!
+bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
+    if (!bno || !val || !bno->initialized) return false;
     
-    // Make sure this instance is active
-    sh2_multi_set_active(bno->instance_id);
+    // This is the exact working pattern from mainOld.c
+    bno->pending_value = val;
+    val->timestamp = 0;
+    sh2_service();  // Each IMU calls its own sh2_service()
+    bno->pending_value = &bno->sensor_value;
     
-    // Temporarily redirect pending_value to the passed-in value (like mainOld.c)
-    sh2_SensorValue_t *old_pending = bno->pending_value;
-    bno->pending_value = value;
-    value->timestamp = 0;
-    
-    // Service the sensor (this will populate value if data is available)
-    sh2_multi_service(bno->instance_id);
-    
-    // Restore original pending_value pointer
-    bno->pending_value = old_pending;
-    
-    return (value->timestamp != 0 || value->sensorId == SH2_GYRO_INTEGRATED_RV);
+    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
 }
 
+void pico_bno08x_service(Pico_BNO08x_t *bno) {
+    if (!bno || !bno->initialized) return;
+    sh2_service();  // Each IMU services its own SH2 instance
+}
+
+// HAL implementation
 static void hardware_reset(Pico_BNO08x_t *bno) {
     if (!bno || bno->reset_pin < 0) return;
     
@@ -214,7 +201,6 @@ static void hardware_reset(Pico_BNO08x_t *bno) {
     bno->has_reset = true;
 }
 
-// HAL callback functions
 static uint32_t hal_get_time_us(sh2_Hal_t *self) {
     (void)self;
     return time_us_32();
@@ -232,18 +218,9 @@ static void sensor_handler(void *cookie, sh2_SensorEvent_t *evt) {
 }
 
 // SPI HAL Implementation
-static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
-    for (int i = 0; i < 500; i++) {
-        if (!gpio_get(bno->int_pin)) return true;
-        sleep_ms(1);
-    }
-    hardware_reset(bno);
-    return false;
-}
-
 static int spi_hal_open(sh2_Hal_t *self) { 
     (void)self; 
-    return 0; 
+    return SH2_OK; 
 }
 
 static void spi_hal_close(sh2_Hal_t *self) { 
@@ -279,11 +256,10 @@ static int i2c_hal_open(sh2_Hal_t *self) {
     if (result < 0) return -1;
     
     sleep_ms(300);
-    return 0;
+    return SH2_OK;
 }
 
 static void i2c_hal_close(sh2_Hal_t *self) {
-    // Nothing to do for I2C close
     (void)self;
 }
 
