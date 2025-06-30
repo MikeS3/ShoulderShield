@@ -312,33 +312,42 @@ static void spi_hal_close(sh2_Hal_t *self) {
     printf("[DEBUG] IMU%d: HAL close called\n", bno->instance_id);
 }
 
+
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
-    int stable = 0;
-    for (int i = 0; i < INT_TIMEOUT_MS; i++) {
-        if (!gpio_get(bno->int_pin)) {
-            if (++stable >= INT_STABLE_MS) {
-                return true;
-            }
-        } else {
-            stable = 0;
-        }
-        sleep_ms(1);
+    // Check if INT is already low (ready)
+    if (!gpio_get(bno->int_pin)) {
+        return true;
     }
-    printf("[WARN] IMU%d: INT timeout after %dms\n", bno->instance_id, INT_TIMEOUT_MS);
-    return false;  // Don't reset on timeout for now
+    
+    // Wait for INT to go low (with shorter timeout for multi-IMU)
+    for (int i = 0; i < 1000; i++) {  // Reduced timeout
+        if (!gpio_get(bno->int_pin)) {
+            sleep_ms(1);  // Small delay for stability
+            return true;
+        }
+        sleep_us(100);  // Smaller delay increments
+    }
+    
+    printf("[WARN] IMU%d: INT timeout (pin state: %d)\n", 
+           bno->instance_id, gpio_get(bno->int_pin));
+    return false;
 }
 
 static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
     
-    // For now, let's not wait for INT during initialization to see if that helps
-    // We can re-enable this later once basic communication works
-    // if (!spi_hal_wait_for_int(bno)) {
-    //     return 0;
-    // }
+    // BNO085 requires INT protocol - but with timeout for robustness
+    if (!spi_hal_wait_for_int(bno)) {
+        // Try anyway - sometimes the first few transactions don't follow protocol
+        printf("[DEBUG] IMU%d: Proceeding without INT for read\n", bno->instance_id);
+    }
 
     gpio_put(bno->cs_pin, 0);
+    sleep_us(10);  // Small delay after CS
+    
     int ret = spi_read_blocking(bno->spi_port, 0x00, buf, len);
+    
+    sleep_us(10);  // Small delay before CS
     gpio_put(bno->cs_pin, 1);
     
     if (t_us) *t_us = time_us_32();
@@ -348,17 +357,21 @@ static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t
 static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
     
-    // For now, let's not wait for INT during initialization to see if that helps
-    // if (!spi_hal_wait_for_int(bno)) {
-    //     return 0;
-    // }
+    // BNO085 requires INT protocol - but with timeout for robustness  
+    if (!spi_hal_wait_for_int(bno)) {
+        // Try anyway - sometimes the first few transactions don't follow protocol
+        printf("[DEBUG] IMU%d: Proceeding without INT for write\n", bno->instance_id);
+    }
 
     gpio_put(bno->cs_pin, 0);
+    sleep_us(10);  // Small delay after CS
+    
     int ret = spi_write_blocking(bno->spi_port, buf, len);
+    
+    sleep_us(10);  // Small delay before CS
     gpio_put(bno->cs_pin, 1);
     
     return ret;
-}
 
 static void hardware_reset(Pico_BNO08x_t *bno) {
     printf("[DEBUG] IMU%d: Hardware reset starting\n", bno->instance_id);
