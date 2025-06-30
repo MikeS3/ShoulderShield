@@ -1,4 +1,4 @@
-/* Pico_BNO08x_multi.c - Multi-IMU SPI driver for Raspberry Pi Pico */
+/* Pico_BNO08x.c - Multi-IMU SPI driver for Raspberry Pi Pico - FIXED VERSION */
 
 #include <stdio.h>
 #include "Pico_BNO08x.h"
@@ -8,43 +8,74 @@
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
 
+// Timeout constants
+#define INT_TIMEOUT_MS 2000
+#define INT_STABLE_MS    10
+#define RESET_DELAY_MS   20
+#define BOOT_DELAY_MS    200
+
+// Get containing structure from member pointer
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
 
+// Forward declarations
 static void hardware_reset(Pico_BNO08x_t *bno);
 static uint32_t hal_get_time_us(sh2_Hal_t *self);
 static void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
 static void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
-
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno);
 static int spi_hal_open(sh2_Hal_t *self);
 static void spi_hal_close(sh2_Hal_t *self);
 static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us);
 static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len);
 
+/**
+ * @brief Initialize BNO08x instance
+ */
 bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
     if (!bno) return false;
+    
+    // Clear the structure
     memset(bno, 0, sizeof(*bno));
+    
+    // Set basic parameters
     bno->reset_pin = reset_pin;
     bno->instance_id = instance_id;
-    bno->spi_frequency = 1000000;
+    bno->spi_frequency = 1000000;  // 1MHz default
     bno->has_reset = false;
+    
+    // Create dedicated SH2 instance for this IMU
+    bno->sh2_instance = sh2_createInstance();
+    if (!bno->sh2_instance) {
+        printf("[ERROR] IMU%d: Failed to create SH2 instance\n", instance_id);
+        return false;
+    }
+    
+    // Setup HAL functions
     bno->hal.getTimeUs = hal_get_time_us;
     bno->hal.open = spi_hal_open;
     bno->hal.close = spi_hal_close;
     bno->hal.read = spi_hal_read;
     bno->hal.write = spi_hal_write;
-    bno->hal.getTimeUs = hal_get_time_us;
+    
+    // Initialize pending value pointer
     bno->pending_value = &bno->sensor_value;
+    
+    printf("[DEBUG] IMU%d: Initialized with dedicated SH2 instance\n", instance_id);
     return true;
 }
 
+/**
+ * @brief Start SPI communication
+ */
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
                            spi_inst_t *spi,
                            uint8_t miso, uint8_t mosi, uint8_t sck,
                            uint8_t cs, uint8_t irq,
                            uint32_t speed) {
-    if (!bno || !spi) return false;
+    if (!bno || !spi || !bno->sh2_instance) return false;
+    
+    // Store SPI configuration
     bno->spi_port = spi;
     bno->miso_pin = miso;
     bno->mosi_pin = mosi;
@@ -53,70 +84,160 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
     bno->int_pin = irq;
     bno->spi_frequency = speed;
 
-    static bool spi0done = false, spi1done = false;
-    if (spi == spi0 && !spi0done) {
+    // Initialize SPI bus (only once per SPI instance)
+    static bool spi0_done = false, spi1_done = false;
+    if (spi == spi0 && !spi0_done) {
         gpio_set_function(miso, GPIO_FUNC_SPI);
         gpio_set_function(mosi, GPIO_FUNC_SPI);
         gpio_set_function(sck,  GPIO_FUNC_SPI);
         spi_init(spi0, speed);
         spi_set_format(spi0, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
-        spi0done = true;
+        spi0_done = true;
+        printf("[DEBUG] IMU%d: Initialized SPI0 bus\n", bno->instance_id);
     }
-    if (spi == spi1 && !spi1done) {
+    if (spi == spi1 && !spi1_done) {
         gpio_set_function(miso, GPIO_FUNC_SPI);
         gpio_set_function(mosi, GPIO_FUNC_SPI);
         gpio_set_function(sck,  GPIO_FUNC_SPI);
         spi_init(spi1, speed);
         spi_set_format(spi1, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
-        spi1done = true;
+        spi1_done = true;
+        printf("[DEBUG] IMU%d: Initialized SPI1 bus\n", bno->instance_id);
     }
 
-    gpio_init(cs);    gpio_set_dir(cs, GPIO_OUT); gpio_put(cs, 1);
-    gpio_init(irq);   gpio_set_dir(irq, GPIO_IN); gpio_pull_up(irq);
-    gpio_put(bno->cs_pin, 1);               // make sure CS is high
+    // Setup individual pins for this IMU
+    gpio_init(cs);    
+    gpio_set_dir(cs, GPIO_OUT); 
+    gpio_put(cs, 1);  // CS high (inactive)
+    
+    gpio_init(irq);   
+    gpio_set_dir(irq, GPIO_IN); 
+    gpio_pull_up(irq);
 
+    // Perform hardware reset
     hardware_reset(bno);
-    sleep_ms(200);    // give the chip 200 ms to come fully alive
-    printf("[DEBUG] IMU%d: reset complete, now sh2_open()\n", bno->instance_id);
-        int rc = sh2_open(&bno->hal, hal_callback, bno);
-    printf("[DEBUG] IMU%d: sh2_open returned %d\n", bno->instance_id, rc);
+    sleep_ms(BOOT_DELAY_MS);
+    
+    printf("[DEBUG] IMU%d: Opening SH2 instance\n", bno->instance_id);
+    
+    // Open SH2 instance with this IMU's dedicated instance
+    int rc = sh2_openInstance(bno->sh2_instance, &bno->hal, hal_callback, bno);
     if (rc != SH2_OK) {
+        printf("[ERROR] IMU%d: sh2_openInstance failed with code %d\n", bno->instance_id, rc);
         return false;
     }
-    sh2_setSensorCallback(sensor_handler, bno);
-    printf("IMU %d initialized\n", bno->instance_id);
-    return true;    // <-- GOOD: returns true on SH2_OK
+    
+    // Set sensor callback for this instance
+    sh2_setSensorCallbackInstance(bno->sh2_instance, sensor_handler, bno);
+    
+    bno->initialized = true;
+    printf("[SUCCESS] IMU%d: Fully initialized with SH2 instance\n", bno->instance_id);
+    return true;
 }
 
-
-bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
-    if (!bno || !val) return false;
-    bno->pending_value = val;
-    val->timestamp = 0;
-    sh2_service();
-    bno->pending_value = &bno->sensor_value;
-    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
-}
-
+/**
+ * @brief Service the IMU (must be called regularly)
+ */
 void pico_bno08x_service(Pico_BNO08x_t *bno) {
-    sh2_service();
+    if (!bno || !bno->sh2_instance) return;
+    sh2_serviceInstance(bno->sh2_instance);
 }
 
-bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t id, uint32_t iu) {
+/**
+ * @brief Enable sensor report
+ */
+bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t id, uint32_t interval_us) {
+    if (!bno || !bno->sh2_instance) return false;
+    
     sh2_SensorConfig_t cfg = {
         .changeSensitivityEnabled  = false,
         .wakeupEnabled             = false,
         .changeSensitivityRelative = false,
         .alwaysOnEnabled           = false,
+        .sniffEnabled              = false,
         .changeSensitivity         = 0,
         .batchInterval_us          = 0,
         .sensorSpecific            = 0,
-        .reportInterval_us         = iu
+        .reportInterval_us         = interval_us
     };
-    return (sh2_setSensorConfig(id, &cfg) == SH2_OK);
+    
+    int status = sh2_setSensorConfigInstance(bno->sh2_instance, id, &cfg);
+    printf("[DEBUG] IMU%d: Enable sensor %d, status=%d\n", bno->instance_id, id, status);
+    return (status == SH2_OK);
 }
 
-// HAL callbacks
+/**
+ * @brief Disable sensor report
+ */
+bool pico_bno08x_disable_report(Pico_BNO08x_t *bno, sh2_SensorId_t id) {
+    if (!bno || !bno->sh2_instance) return false;
+    
+    sh2_SensorConfig_t cfg = {
+        .changeSensitivityEnabled  = false,
+        .wakeupEnabled             = false,
+        .changeSensitivityRelative = false,
+        .alwaysOnEnabled           = false,
+        .sniffEnabled              = false,
+        .changeSensitivity         = 0,
+        .batchInterval_us          = 0,
+        .sensorSpecific            = 0,
+        .reportInterval_us         = 0  // 0 = disable
+    };
+    
+    return (sh2_setSensorConfigInstance(bno->sh2_instance, id, &cfg) == SH2_OK);
+}
+
+/**
+ * @brief Get sensor event
+ */
+bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
+    if (!bno || !val || !bno->sh2_instance) return false;
+    
+    bno->pending_value = val;
+    val->timestamp = 0;
+    
+    // Service this specific instance
+    sh2_serviceInstance(bno->sh2_instance);
+    
+    // Restore default pending value
+    bno->pending_value = &bno->sensor_value;
+    
+    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
+}
+
+/**
+ * @brief Check if data is available
+ */
+bool pico_bno08x_data_available(Pico_BNO08x_t *bno) {
+    if (!bno || !bno->sh2_instance) return false;
+    return bno->sensor_value.timestamp != 0;
+}
+
+/**
+ * @brief Hardware reset
+ */
+void pico_bno08x_reset(Pico_BNO08x_t *bno) {
+    if (!bno) return;
+    hardware_reset(bno);
+}
+
+/**
+ * @brief Cleanup and destroy instance
+ */
+void pico_bno08x_destroy(Pico_BNO08x_t *bno) {
+    if (!bno) return;
+    
+    if (bno->sh2_instance) {
+        sh2_closeInstance(bno->sh2_instance);
+        sh2_destroyInstance(bno->sh2_instance);
+        bno->sh2_instance = NULL;
+    }
+    
+    printf("[DEBUG] IMU%d: Destroyed\n", bno->instance_id);
+}
+
+// ===== HAL Implementation =====
+
 static uint32_t hal_get_time_us(sh2_Hal_t *self) {
     (void)self;
     return time_us_32();
@@ -124,19 +245,27 @@ static uint32_t hal_get_time_us(sh2_Hal_t *self) {
 
 static void hal_callback(void *cookie, sh2_AsyncEvent_t *e) {
     Pico_BNO08x_t *bno = (Pico_BNO08x_t *)cookie;
-    if (e->eventId == SH2_RESET) bno->has_reset = true;
+    if (e->eventId == SH2_RESET) {
+        bno->has_reset = true;
+        printf("[DEBUG] IMU%d: Reset event received\n", bno->instance_id);
+    }
 }
 
 static void sensor_handler(void *cookie, sh2_SensorEvent_t *evt) {
     Pico_BNO08x_t *bno = (Pico_BNO08x_t *)cookie;
-    if (sh2_decodeSensorEvent(bno->pending_value, evt) != SH2_OK)
+    if (sh2_decodeSensorEvent(bno->pending_value, evt) != SH2_OK) {
         bno->pending_value->timestamp = 0;
+    }
 }
 
-static int spi_hal_open(sh2_Hal_t *self) { (void)self; return SH2_OK; }
-static void spi_hal_close(sh2_Hal_t *self) { (void)self; }
-#define INT_TIMEOUT_MS 2000
-#define INT_STABLE_MS    10
+static int spi_hal_open(sh2_Hal_t *self) { 
+    (void)self; 
+    return SH2_OK; 
+}
+
+static void spi_hal_close(sh2_Hal_t *self) { 
+    (void)self; 
+}
 
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
     int stable = 0;
@@ -148,48 +277,46 @@ static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno) {
         }
         sleep_ms(1);
     }
-    printf("[WARN] IMU%d: INT never stayed low for %d ms\n",
-           bno->instance_id, INT_TIMEOUT_MS);
+    printf("[WARN] IMU%d: INT timeout\n", bno->instance_id);
     hardware_reset(bno);
     return false;
 }
 
 static int spi_hal_read(sh2_Hal_t *self, uint8_t *buf, unsigned len, uint32_t *t_us) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
+    
     if (!spi_hal_wait_for_int(bno)) {
-    printf("[WARN] IMU%d: timeout waiting for INT before SPI\n", bno->instance_id);
-    return 0;
-}
+        return 0;
+    }
 
     gpio_put(bno->cs_pin, 0);
     int ret = spi_read_blocking(bno->spi_port, 0x00, buf, len);
     gpio_put(bno->cs_pin, 1);
+    
     if (t_us) *t_us = time_us_32();
     return ret;
 }
 
 static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
+    
     if (!spi_hal_wait_for_int(bno)) {
-    printf("[WARN] IMU%d: timeout waiting for INT before SPI\n", bno->instance_id);
-    return 0;
-}
+        return 0;
+    }
 
     gpio_put(bno->cs_pin, 0);
     int ret = spi_write_blocking(bno->spi_port, buf, len);
     gpio_put(bno->cs_pin, 1);
+    
     return ret;
 }
 
-void hardware_reset(Pico_BNO08x_t *bno) {
+static void hardware_reset(Pico_BNO08x_t *bno) {
     gpio_init(bno->reset_pin);
     gpio_set_dir(bno->reset_pin, GPIO_OUT);
     gpio_put(bno->reset_pin, 0);
-    sleep_ms(20);
+    sleep_ms(RESET_DELAY_MS);
     gpio_put(bno->reset_pin, 1);
     sleep_ms(100);
-}
-
-void pico_bno08x_reset(Pico_BNO08x_t *bno) {
-    hardware_reset(bno);
+    printf("[DEBUG] IMU%d: Hardware reset completed\n", bno->instance_id);
 }

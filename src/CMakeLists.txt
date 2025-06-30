@@ -2,15 +2,55 @@ cmake_minimum_required(VERSION 3.13)
 
 # Instruct CMake where the Pico SDK is located
 include(pico_sdk_import.cmake)
-project(bno08x_multi_project C CXX ASM)
+project(bno08x_multi_fixed C CXX ASM)
 
 # Initialize the Pico SDK
 pico_sdk_init()
 
 # ------------------------------
-# Example: Multi-IMU BNO08x Demo
+# Fixed Multi-IMU BNO08x Demo
 # ------------------------------
-add_executable(Simple_test_3Imu
+add_executable(working_3imu_test
+    # Main application
+    3IMUmain.c
+    
+    # Fixed BNO08x driver
+    Pico_BNO08x_multi.c
+    
+    # Fixed SH2 library
+    sh2.c
+    sh2_SensorValue.c
+    sh2_util.c
+    shtp.c
+)
+
+# Enable USB and UART output
+pico_enable_stdio_usb(working_3imu_test 1)
+pico_enable_stdio_uart(working_3imu_test 1)
+
+# Include directories
+target_include_directories(working_3imu_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+# Link against Pico libraries
+target_link_libraries(working_3imu_test
+    pico_stdlib
+    hardware_spi
+    hardware_gpio
+)
+
+# Generate binary, hex, and uf2 files
+pico_add_extra_outputs(working_3imu_test)
+
+# Export compile commands for IDEs
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ------------------------------
+# Optional: Build original for comparison
+# ------------------------------
+add_executable(original_test
     Simple_test_3Imu.c
     Pico_BNO08x_multi.c
     sh2.c
@@ -19,24 +59,18 @@ add_executable(Simple_test_3Imu
     shtp.c
 )
 
-# Enable USB and UART output for this target
-pico_enable_stdio_usb(Simple_test_3Imu 1)
-pico_enable_stdio_uart(Simple_test_3Imu 1)
+pico_enable_stdio_usb(original_test 1)
+pico_enable_stdio_uart(original_test 1)
 
-# Include directories (SDK and project)
-target_include_directories(Simple_test_3Imu PRIVATE
+target_include_directories(original_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
-# Link against Pico libraries
-target_link_libraries(Simple_test_3Imu
+target_link_libraries(original_test
     pico_stdlib
     hardware_spi
     hardware_gpio
 )
 
-# Generate binary, hex, and uf2 files
-pico_add_extra_outputs(Simple_test_3Imu)
-
-# Export compile commands for IDEs
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+pico_add_extra_outputs(original_test)
