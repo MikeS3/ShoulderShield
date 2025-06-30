@@ -79,7 +79,6 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno,
     bno->hal.write = spi_hal_write;
     
     // Initialize SH2 layer
-    sh2_hal_init(&bno->hal, bno);
     sh2_open(&bno->hal, hal_callback, bno);
     sh2_setSensorCallback(sensor_handler, bno);
     
@@ -114,7 +113,6 @@ bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
     bno->hal.write = i2c_hal_write;
     
     // Initialize SH2 layer
-    sh2_hal_init(&bno->hal, bno);
     sh2_open(&bno->hal, hal_callback, bno);
     sh2_setSensorCallback(sensor_handler, bno);
     
@@ -124,8 +122,7 @@ bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
 void pico_bno08x_service(Pico_BNO08x_t *bno) {
     if (!bno) return;
     
-    // Set this instance as active for HAL callbacks
-    sh2_hal_init(&bno->hal, bno);
+    // Service the SH2 layer for this instance
     sh2_service();
 }
 
@@ -143,9 +140,6 @@ void hardware_reset(Pico_BNO08x_t *bno) {
 
 bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us) {
     if (!bno) return false;
-    
-    // Set this instance as active for HAL callbacks
-    sh2_hal_init(&bno->hal, bno);
     
     sh2_SensorConfig_t cfg = {
         .changeSensitivityEnabled = false,

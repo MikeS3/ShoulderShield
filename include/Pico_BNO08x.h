@@ -97,7 +97,6 @@ bool pico_bno08x_begin_i2c(Pico_BNO08x_t *bno, i2c_inst_t *i2c_port,
 
 // Service function (replaces set_active pattern)
 void pico_bno08x_service(Pico_BNO08x_t *bno);
-void hardware_reset(Pico_BNO08x_t *bno);
 
 // Sensor configuration
 bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us);
