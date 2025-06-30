@@ -1,3 +1,4 @@
+
 #ifndef PICO_BNO08X_H
 #define PICO_BNO08X_H
 
@@ -66,7 +67,6 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
 
 // Service function (replaces set_active pattern)
 void pico_bno08x_service(Pico_BNO08x_t *bno);
-void hardware_reset(Pico_BNO08x_t *bno);
 
 // Sensor configuration
 bool pico_bno08x_enable_report(Pico_BNO08x_t *bno, sh2_SensorId_t sensor_id, uint32_t interval_us);
@@ -79,6 +79,8 @@ bool pico_bno08x_data_available(Pico_BNO08x_t *bno);
 // Utility functions
 void pico_bno08x_reset(Pico_BNO08x_t *bno);
 bool pico_bno08x_soft_reset(Pico_BNO08x_t *bno);
+static void hardware_reset(Pico_BNO08x_t *bno);
+
 
 // HAL callback functions (instance-aware via cookie)
 int pico_bno08x_hal_read(sh2_Hal_t *self, uint8_t *pBuffer, unsigned len, uint32_t *t_us);

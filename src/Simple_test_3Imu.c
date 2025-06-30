@@ -29,7 +29,8 @@ void setup_imu(Pico_BNO08x_t *imu, int reset_pin, int instance_id,
                uint8_t cs, uint8_t int_pin,
                const char *label) {
     // Reset the device via the public API
-    hardware_reset(imu);
+    pico_bno08x_reset(imu);
+
 
     if (!pico_bno08x_init(imu, reset_pin, instance_id)) {
         printf("[ERROR] %s init failed!\n", label);
@@ -39,7 +40,7 @@ void setup_imu(Pico_BNO08x_t *imu, int reset_pin, int instance_id,
     int rc;
     rc = pico_bno08x_begin_spi(imu, SPI_PORT,
                                SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-                               cs, int_pin, 3000000);
+                               cs, int_pin, 1000000);
     printf("[DEBUG] %s begin_spi returned %d\n", label, rc);
 
     if (rc != true) {
@@ -64,8 +65,11 @@ int main() {
     sleep_ms(3000);  // wait for USB console
 
     printf("Initializing 3 BNO08x IMUs...\n");
-    setup_imu(&imu2, RESET2_PIN, 2, CS2_PIN, INT2_PIN, "IMU2");
+    sleep_ms(500);
     setup_imu(&imu1, RESET1_PIN, 1, CS1_PIN, INT1_PIN, "IMU1");
+    sleep_ms(500);
+    setup_imu(&imu2, RESET2_PIN, 2, CS2_PIN, INT2_PIN, "IMU2");
+    sleep_ms(500);
     setup_imu(&imu3, RESET3_PIN, 3, CS3_PIN, INT3_PIN, "IMU3");
 
     while (true) {
@@ -75,11 +79,13 @@ int main() {
             printf("IMU1: q=(%.2f, %.2f, %.2f, %.2f)\n", val.un.gyroIntegratedRV.real,
                    val.un.gyroIntegratedRV.i, val.un.gyroIntegratedRV.j, val.un.gyroIntegratedRV.k);
         }
+        sleep_ms(10);
 
         if (pico_bno08x_get_sensor_event(&imu2, &val)) {
             printf("IMU2: q=(%.2f, %.2f, %.2f, %.2f)\n", val.un.gyroIntegratedRV.real,
                    val.un.gyroIntegratedRV.i, val.un.gyroIntegratedRV.j, val.un.gyroIntegratedRV.k);
         }
+        sleep_ms(10);
 
         if (pico_bno08x_get_sensor_event(&imu3, &val)) {
             printf("IMU3: q=(%.2f, %.2f, %.2f, %.2f)\n", val.un.gyroIntegratedRV.real,
