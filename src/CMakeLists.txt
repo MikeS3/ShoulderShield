@@ -51,7 +51,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Optional: Build original for comparison
 # ------------------------------
 add_executable(original_test
-    Simple_test_3Imu.c
+    mainOld.c
     Pico_BNO08x_multi.c
     sh2.c
     sh2_SensorValue.c

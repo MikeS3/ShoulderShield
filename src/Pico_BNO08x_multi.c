@@ -372,6 +372,7 @@ static int spi_hal_write(sh2_Hal_t *self, uint8_t *buf, unsigned len) {
     gpio_put(bno->cs_pin, 1);
     
     return ret;
+}
 
 static void hardware_reset(Pico_BNO08x_t *bno) {
     printf("[DEBUG] IMU%d: Hardware reset starting\n", bno->instance_id);
