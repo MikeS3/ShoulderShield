@@ -14,7 +14,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+// Extern global debug control flag
+extern bool debug_suppressed;
 /**
  * @brief BNO08x device state and configuration for a single instance
  *
@@ -86,7 +87,24 @@ bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi_port,
 void pico_bno08x_service(Pico_BNO08x_t *bno);
 
 /**
- * @brief Enable a sensor report for this IMU instance
+ * @brief Enabl52%] Building C object src/CMakeFiles/original_test.dir/3IMUmain.c.o
+[ 52%] Linking CXX executable original_test.elf
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o: in function `spi_hal_close':
+/app/src/Pico_BNO08x_multi.c:167: undefined reference to `debug_suppressed'
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o: in function `spi_hal_open':
+/app/src/Pico_BNO08x_multi.c:163: undefined reference to `debug_suppressed'
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o: in function `hal_callback':
+/app/src/Pico_BNO08x_multi.c:149: undefined reference to `debug_suppressed'
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o: in function `spi_hal_read':
+/app/src/Pico_BNO08x_multi.c:186: undefined reference to `debug_suppressed'
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o: in function `spi_hal_write':
+/app/src/Pico_BNO08x_multi.c:198: undefined reference to `debug_suppressed'
+/usr/lib/gcc/arm-none-eabi/10.3.1/../../../arm-none-eabi/bin/ld: CMakeFiles/original_test.dir/Pico_BNO08x_multi.c.o:/app/src/Pico_BNO08x_multi.c:93: more undefined references to `debug_suppressed' follow
+collect2: error: ld returned 1 exit status
+make[2]: *** [src/CMakeFiles/original_test.dir/build.make:1465: src/original_test.elf] Error 1
+make[1]: *** [CMakeFiles/Makefile2:2063: src/CMakeFiles/original_test.dir/all] Error 2
+make: *** [Makefile:91: all] Error 2
+e a sensor report for this IMU instance
  * @param bno Pointer to BNO08x instance
  * @param sensor_id Sensor type to enable
  * @param interval_us Report interval in microseconds
