@@ -34,7 +34,7 @@ bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
     memset(bno, 0, sizeof(*bno));
     bno->reset_pin = reset_pin;
     bno->instance_id = instance_id;
-    bno->spi_frequency = 1000000;
+    bno->spi_frequency = 3000000;
     bno->has_reset = false;
     bno->sh2_instance = sh2_createInstance();
     if (!bno->sh2_instance) return false;
