@@ -1,0 +1,4 @@
+# OpenSim IMU Data Collection
+# Format compatible with OpenSim IMU Inverse Kinematics
+time,sensor_name,q0,q1,q2,q3,acc_x,acc_y,acc_z,gyr_x,gyr_y,gyr_z
+# Data collection started

@@ -99,7 +99,7 @@ bool select_imu(int i) {
 void print_opensim_header() {
     printf("# OpenSim IMU Data Collection\n");
     printf("# Format compatible with OpenSim IMU Inverse Kinematics\n");
-    printf("time,sensor_name,q0,q1,q2,q3,acc_x,acc_y,acc_z,gyr_x,gyr_y,gyr_z\n");
+    printf("time\tsensor_name\nq0,q1,q2,q3,\n");
 }
 
 typedef struct {
@@ -123,109 +123,78 @@ int main() {
         return -1;
     }
 
-    bool collecting = false;
-    bool stop_requested = false;
-    char buf[16];
+    print_opensim_header();
+    uint64_t last_switch = to_ms_since_boot(get_absolute_time());
+    int next = 0;
+    t0 = last_switch;
 
-    while (true) {
-        // --- WAIT FOR START ---
-        collecting = false;
-        stop_requested = false;
-        printf("# Waiting for start command over USB (type 'start' + Enter)...\n");
+    imu_data_t current_data = {0};
 
-        while (!collecting) {
-            if (fgets(buf, sizeof(buf), stdin)) {
-                if (strncmp(buf, "start", 5) == 0) {
-                    t0 = to_ms_since_boot(get_absolute_time());
-                    collecting = true;
-                    print_opensim_header();
-                    printf("# Data collection started\n");
+    while (1) {
+        uint64_t now = to_ms_since_boot(get_absolute_time());
+
+        if (now - last_switch >= SWITCH_INTERVAL_MS) {
+            for (int k = 0; k < 3; k++) {
+                int idx = (next + k) % 3;
+                if (available[idx] && select_imu(idx)) {
+                    next = (idx + 1) % 3;
+                    last_switch = now;
+                    current_data = (imu_data_t){0};
+                    current_data.time = (now - t0) / 1000.0f;
+                    break;
                 }
             }
-            sleep_ms(100);
         }
 
-        // --- START COLLECTING ---
-        uint64_t last_switch = t0;
-        int next = 0;
-        imu_data_t current_data = {0};
+        if (cur >= 0) {
+            for (int p = 0; p < POLL_ITERATIONS; p++) {
+                pico_bno08x_service(&active);
+                sh2_SensorValue_t v;
 
-        while (collecting && !stop_requested) {
-            uint64_t now = to_ms_since_boot(get_absolute_time());
+                if (pico_bno08x_get_sensor_event(&active, &v)) {
+                    current_data.time = (to_ms_since_boot(get_absolute_time()) - t0) / 1000.0f;
 
-            // Non-blocking stop check
-            if (fgets(buf, sizeof(buf), stdin)) {
-                if (strncmp(buf, "stop", 4) == 0) {
-                    stop_requested = true;
-                    printf("# Stop command received\n");
-                }
-            }
+                    switch (v.sensorId) {
+                        case SH2_ROTATION_VECTOR:
+                            current_data.q[0] = v.un.rotationVector.real;
+                            current_data.q[1] = v.un.rotationVector.i;
+                            current_data.q[2] = v.un.rotationVector.j;
+                            current_data.q[3] = v.un.rotationVector.k;
+                            current_data.has_quat = true;
+                            break;
 
-            if (now - last_switch >= SWITCH_INTERVAL_MS) {
-                for (int k = 0; k < 3; k++) {
-                    int idx = (next + k) % 3;
-                    if (available[idx] && select_imu(idx)) {
-                        next = (idx + 1) % 3;
-                        last_switch = now;
-                        current_data = (imu_data_t){0};
-                        current_data.time = (now - t0) / 1000.0f;
+                        case SH2_ACCELEROMETER:
+                            current_data.acc[0] = v.un.accelerometer.x;
+                            current_data.acc[1] = v.un.accelerometer.y;
+                            current_data.acc[2] = v.un.accelerometer.z;
+                            current_data.has_accel = true;
+                            break;
+
+                        case SH2_GYROSCOPE_CALIBRATED:
+                            current_data.gyr[0] = v.un.gyroscope.x;
+                            current_data.gyr[1] = v.un.gyroscope.y;
+                            current_data.gyr[2] = v.un.gyroscope.z;
+                            current_data.has_gyro = true;
+                            break;
+                    }
+
+                    if (current_data.has_quat) {
+                        printf("%.3f,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+                            current_data.time,
+                            imus[cur].opensim_name,
+                            current_data.q[0], current_data.q[1], current_data.q[2], current_data.q[3],
+                            current_data.has_accel ? current_data.acc[0] : 0.0f,
+                            current_data.has_accel ? current_data.acc[1] : 0.0f,
+                            current_data.has_accel ? current_data.acc[2] : 0.0f,
+                            current_data.has_gyro ? current_data.gyr[0] : 0.0f,
+                            current_data.has_gyro ? current_data.gyr[1] : 0.0f,
+                            current_data.has_gyro ? current_data.gyr[2] : 0.0f);
                         break;
                     }
                 }
-            }
-
-            if (cur >= 0) {
-                for (int p = 0; p < POLL_ITERATIONS; p++) {
-                    pico_bno08x_service(&active);
-                    sh2_SensorValue_t v;
-
-                    if (pico_bno08x_get_sensor_event(&active, &v)) {
-                        current_data.time = (to_ms_since_boot(get_absolute_time()) - t0) / 1000.0f;
-
-                        switch (v.sensorId) {
-                            case SH2_ROTATION_VECTOR:
-                                current_data.q[0] = v.un.rotationVector.real;
-                                current_data.q[1] = v.un.rotationVector.i;
-                                current_data.q[2] = v.un.rotationVector.j;
-                                current_data.q[3] = v.un.rotationVector.k;
-                                current_data.has_quat = true;
-                                break;
-
-                            case SH2_ACCELEROMETER:
-                                current_data.acc[0] = v.un.accelerometer.x;
-                                current_data.acc[1] = v.un.accelerometer.y;
-                                current_data.acc[2] = v.un.accelerometer.z;
-                                current_data.has_accel = true;
-                                break;
-
-                            case SH2_GYROSCOPE_CALIBRATED:
-                                current_data.gyr[0] = v.un.gyroscope.x;
-                                current_data.gyr[1] = v.un.gyroscope.y;
-                                current_data.gyr[2] = v.un.gyroscope.z;
-                                current_data.has_gyro = true;
-                                break;
-                        }
-
-                        if (current_data.has_quat) {
-                            printf("%.3f\t%s\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
-                                current_data.time,
-                                imus[cur].opensim_name,
-                                current_data.q[0], current_data.q[1], current_data.q[2], current_data.q[3],
-                                current_data.has_accel ? current_data.acc[0] : 0.0f,
-                                current_data.has_accel ? current_data.acc[1] : 0.0f,
-                                current_data.has_accel ? current_data.acc[2] : 0.0f,
-                                current_data.has_gyro ? current_data.gyr[0] : 0.0f,
-                                current_data.has_gyro ? current_data.gyr[1] : 0.0f,
-                                current_data.has_gyro ? current_data.gyr[2] : 0.0f);
-                            break;
-                        }
-                    }
-                    sleep_ms(POLL_DELAY_MS);
-                }
+                sleep_ms(POLL_DELAY_MS);
             }
         }
-
-        printf("# Data collection paused. Send 'start' to begin a new session.\n");
     }
 
     return 0;

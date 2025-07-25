@@ -7,7 +7,7 @@ pico_sdk_init()
 
 add_executable(opensim_data
     OpenSimData.c
-    Pico_BNO08x_debug.c
+    Pico_BNO08x_multi.c
     sh2.c
     sh2_SensorValue.c
     sh2_util.c

@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 
 
-PORT = 'COM6'         # Replace with Pico COM port'COM5' or '/dev/ttyACM0'
+PORT = '/dev/ttyACM0'         # Replace with Pico COM port'COM5' or '/dev/ttyACM0'
 BAUD = 115200
 TIMEOUT = 1.0         # Seconds
 
