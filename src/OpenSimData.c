@@ -27,6 +27,7 @@
 #define SWITCH_INTERVAL_MS 1000
 #define POLL_ITERATIONS     8
 #define POLL_DELAY_MS       40
+#define DATA_RATE = (1/POLL_DELAY_MS)*100
 
 typedef struct {
     uint cs;
@@ -37,9 +38,9 @@ typedef struct {
 } imu_cfg_t;
 
 static const imu_cfg_t imus[3] = {
-    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU0", "ShoulderBlade_imu"},
-    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU1", "Sterum_imu"},
-    {CS3_PIN, INT3_PIN, RESET3_PIN, "IMU2", "Humerus_imu"}
+    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU0", "scapula_imu"},
+    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU1", "sternum_imu"},
+    {CS3_PIN, INT3_PIN, RESET3_PIN, "IMU2", "humerus_imu"}
 };
 
 Pico_BNO08x_t active;
@@ -96,10 +97,8 @@ bool select_imu(int i) {
     return true;
 }
 
-void print_opensim_header() {
-    printf("# OpenSim IMU Data Collection\n");
-    printf("# Format compatible with OpenSim IMU Inverse Kinematics\n");
-    printf("time\tsensor_name\nq0,q1,q2,q3,\n");
+void print_data_collection_header() {
+    printf("<data_start>time\tsensor_name\n");
 }
 
 typedef struct {
