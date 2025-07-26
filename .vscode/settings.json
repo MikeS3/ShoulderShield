@@ -3,6 +3,9 @@
         "stdlib.h": "c",
         "pico.h": "c",
         "config.h": "c",
-        "config_autogen.h": "c"
+        "config_autogen.h": "c",
+        "Pico_BNO_MBUS.C": "cpp",
+        "I2C_functions.C": "cpp",
+        "Pico_BNO085_I2C.C": "cpp"
     }
 }

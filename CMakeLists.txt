@@ -16,5 +16,8 @@ pico_sdk_init()
 # Add include directories
 include_directories(include)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+
 # Add the source directory
 add_subdirectory(src)

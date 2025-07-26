@@ -27,39 +27,34 @@ target_link_libraries(opensim_data
 pico_add_extra_outputs(opensim_data)
 
 # ------------------------------
-# Fixed Multi-IMU BNO08x Demo
+# I2C Multi‑IMU BNO085 Demo
 # ------------------------------
-add_executable(debug_test
-    # Main application
-    3IMUmainDebug.c
-   
-    # Fixed BNO08x driver
-    Pico_BNO08x_debug.c
-   
-    # Fixed SH2 library
-    sh2.c
+add_executable(I2C_Test
+    I2C3ImuMain.c       # your main loop
+    sh2M.c
+    Pico_BNO085_I2C.C
     sh2_SensorValue.c
     sh2_util.c
     shtp.c
 )
-# Enable USB and UART output
-pico_enable_stdio_usb(debug_test 1)
-pico_enable_stdio_uart(debug_test 1)
-# Include directories
-target_include_directories(debug_test PRIVATE
+
+pico_enable_stdio_usb(I2C_Test 1)
+pico_enable_stdio_uart(I2C_Test 1)
+
+target_include_directories(I2C_Test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-)
-# Link against Pico libraries
-target_link_libraries(debug_test
+    
+    )
+
+target_link_libraries(I2C_Test
     pico_stdlib
-    hardware_spi
-    hardware_gpio
+    hardware_i2c         # <-- use I²C driver
+    hardware_gpio        # for pull‑ups & reset pins
 )
-# Generate binary, hex, and uf2 files
-pico_add_extra_outputs(debug_test)
-# Export compile commands for IDEs
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+pico_add_extra_outputs(I2C_Test)
+
 # ------------------------------
 # Optional: Build original for comparison
 # ------------------------------
