@@ -64,6 +64,9 @@ typedef struct {
  */
 bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id);
 
+void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
+void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
+
 /**
  * @brief Start SPI communication and register SH2 callbacks
  * @param bno Pointer to BNO08x instance
@@ -153,6 +156,9 @@ bool pico_bno08x_soft_reset(Pico_BNO08x_t *bno);
  * @param bno Pointer to BNO08x instance
  */
 void pico_bno08x_destroy(Pico_BNO08x_t *bno);
+
+void imu_event_callback(void *cookie, sh2_AsyncEvent_t *event);
+
 
 #ifdef __cplusplus
 }

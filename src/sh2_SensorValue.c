@@ -344,6 +344,7 @@ static int decodeRotationVector(sh2_SensorValue_t *value, const sh2_SensorEvent_
     value->un.rotationVector.k = read16(&event->report[8]) * SCALE_Q(14);
     value->un.rotationVector.real = read16(&event->report[10]) * SCALE_Q(14);
     value->un.rotationVector.accuracy = read16(&event->report[12]) * SCALE_Q(12);
+    value->sensorId = SH2_ROTATION_VECTOR;
 
     return SH2_OK;
 }

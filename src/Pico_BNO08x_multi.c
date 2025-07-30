@@ -21,8 +21,8 @@ bool debug_suppressed = true;
 
 static void hardware_reset(Pico_BNO08x_t *bno);
 static uint32_t hal_get_time_us(sh2_Hal_t *self);
-static void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
-static void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
+//static void hal_callback(void *cookie, sh2_AsyncEvent_t *e);
+//static void sensor_handler(void *cookie, sh2_SensorEvent_t *e);
 static bool spi_hal_wait_for_int(Pico_BNO08x_t *bno);
 static int spi_hal_open(sh2_Hal_t *self);
 static void spi_hal_close(sh2_Hal_t *self);
@@ -48,6 +48,24 @@ bool pico_bno08x_init(Pico_BNO08x_t *bno, int reset_pin, int instance_id) {
     bno->pending_value = &bno->sensor_value;
     return true;
 }
+#include "sh2.h"
+
+/*void imu_event_callback(void *cookie, sh2_AsyncEvent_t *event) {
+    Pico_BNO08x_t *imu = (Pico_BNO08x_t *)cookie;
+
+    switch (event->eventId) {
+        case SH2_RESET:
+            printf("IMU %d reset detected\n", imu->instance_id);
+            imu->has_reset = true;
+            break;
+        case SH2_SENSOR_CONF:
+            printf("IMU %d sensor config complete\n", imu->instance_id);
+            break;
+        default:
+            printf("IMU %d unknown event: 0x%02X\n", imu->instance_id, event->eventId);
+            break;
+    }
+}*/
 
 bool pico_bno08x_begin_spi(Pico_BNO08x_t *bno, spi_inst_t *spi, uint8_t miso, uint8_t mosi, uint8_t sck,
                            uint8_t cs, uint8_t irq, uint32_t speed) {
@@ -125,7 +143,9 @@ bool pico_bno08x_get_sensor_event(Pico_BNO08x_t *bno, sh2_SensorValue_t *val) {
     val->timestamp = 0;
     sh2_serviceInstance(bno->sh2_instance);
     bno->pending_value = &bno->sensor_value;
-    return (val->timestamp != 0 || val->sensorId == SH2_GYRO_INTEGRATED_RV);
+    //printf("Timestamp: %f, Sensor ID: %d, sh2 gyro integrated %.3f\n", val->timestamp, val->sensorId, SH2_ROTATION_VECTOR);
+    //printf("timestamp != %d, sensorID == 0x05 %d\n", (val->timestamp != 0 || val->sensorId == SH2_ROTATION_VECTOR));
+    return (val->timestamp != 0 || val->sensorId == SH2_ROTATION_VECTOR);
 }
 
 void pico_bno08x_destroy(Pico_BNO08x_t *bno) {
@@ -145,18 +165,23 @@ static uint32_t hal_get_time_us(sh2_Hal_t *self) {
     return time_us_32();
 }
 
-static void hal_callback(void *cookie, sh2_AsyncEvent_t *e) {
+ void hal_callback(void *cookie, sh2_AsyncEvent_t *e) {
     Pico_BNO08x_t *bno = (Pico_BNO08x_t *)cookie;
     if (e->eventId == SH2_RESET) bno->has_reset = true;
     if (!debug_suppressed) printf("[DEBUG] IMU%d: Reset event received\n", bno->instance_id);
 }
 
-static void sensor_handler(void *cookie, sh2_SensorEvent_t *evt) {
+ void sensor_handler(void *cookie, sh2_SensorEvent_t *evt) {
     Pico_BNO08x_t *bno = (Pico_BNO08x_t *)cookie;
+
+    //printf("[sensor_handler] reportId = 0x%02X\n", evt->reportId);
+
     if (sh2_decodeSensorEvent(bno->pending_value, evt) != SH2_OK) {
+        printf("[sensor_handler] decode FAILED for reportId 0x%02X\n", evt->reportId);
         bno->pending_value->timestamp = 0;
     }
 }
+
 
 static int spi_hal_open(sh2_Hal_t *self) {
     Pico_BNO08x_t *bno = container_of(self, Pico_BNO08x_t, hal);
