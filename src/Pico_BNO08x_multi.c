@@ -8,7 +8,7 @@
 
 
 // Define the global debug control variable
-bool debug_suppressed = true;
+bool debug_suppressed = false;
 
 #define INT_TIMEOUT_MS 3000
 #define INT_STABLE_MS    20
