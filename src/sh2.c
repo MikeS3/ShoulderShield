@@ -424,6 +424,7 @@ int sh2_openInstance(sh2_Instance_t* pInstance, sh2_Hal_t *pHal,
     // Open SHTP layer
     pInstance->pShtp = shtp_open(pInstance->pHal);
     if (pInstance->pShtp == 0) {
+        printf("It was shtp\n");
         return SH2_ERR;
     }
 

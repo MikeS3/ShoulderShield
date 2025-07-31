@@ -27,7 +27,7 @@
 // ------------------------------------------------------------------------
 // Private types
 
-#define SHTP_INSTANCES (1)  // Number of SHTP devices supported
+#define SHTP_INSTANCES (3)  // Number of SHTP devices supported
 #define SHTP_MAX_CHANS (8)  // Max channels per SHTP device
 #define SHTP_HDR_LEN (4)
 
@@ -313,6 +313,7 @@ void *shtp_open(sh2_Hal_t *pHal)
     // Find an available instance for this open
     shtp_t *pShtp = getInstance();
     if (pShtp == 0) {
+        printf("no shtp instances available\n");
         // No instances available, return error
         return 0;
     }
@@ -323,6 +324,7 @@ void *shtp_open(sh2_Hal_t *pHal)
     // Open HAL
     int status = pHal->open(pHal);
     if (status != SH2_OK) {
+        printf("HAL failed to open\n");
         return 0;
     }
 

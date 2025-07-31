@@ -102,13 +102,13 @@ void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
     imu_cfg_t* cfg = &imus[0];
     for(int i=0; i < num_IMUs; i++){ //for each IMU
     cfg = &imus[i];
-    if(pico_bno08x_init(&IMUs_h[i], cfg->rst, i))printf("Initializing IMU %i\n", i);
+    if(pico_bno08x_init(&IMUs_h[i], cfg->rst, i))printf("Initializing IMU %d\n", i);
 
     if(pico_bno08x_begin_spi(&IMUs_h[i], SPI_PORT,
         SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-        cfg->cs, cfg->inten, 3000000)) printf("Initializing IMU %i SPI\n", i);
+        cfg->cs, cfg->inten, 3000000)) printf("Initializing IMU %d SPI\n", i);
 
-    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 2500)) printf("Enabled Quaternion reports for IMU %i", i);
+    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 2500)) printf("Enabled Quaternion reports for IMU %d", i);
 
      //sh2_closeInstance(IMUs_h[i].sh2_instance); //close the instance after its generated
     }
@@ -142,14 +142,15 @@ int main() {
     init_imus(IMUs, sizeof(IMUs)/sizeof(Pico_BNO08x_t)); // init imu instances.
 
     print_data_collection_header();
-    uint64_t last_switch = to_ms_since_boot(get_absolute_time());
+    float last_switch = to_ms_since_boot(get_absolute_time());
     int next = 0;
-    uint64_t t0 = last_switch;
+    float t0 = last_switch;
+    float before;
     imu_data_t current_data = {0};
-
+    float now;
     while (1) {
-        float now = to_ms_since_boot(get_absolute_time());
-        printf("now - last switch %.7f\n", now - last_switch);
+        now = to_ms_since_boot(get_absolute_time());
+        printf("now - last switch %.2f\n", now - last_switch);
         if (1) {
             for (int k = 0; k < 3; k++) {
                 int idx = (next + k) % 3;
@@ -168,19 +169,19 @@ int main() {
         if (cur >= 0) {
             //printf("current IMU is %i\n", cur);
             //sh2_openInstance(IMUs[cur].sh2_instance, &IMUs[cur].hal, sensor_handler, NULL ); //reopen the instance before servicing
-            float before = to_ms_since_boot(get_absolute_time());
+            before = to_ms_since_boot(get_absolute_time());
             //sh2_openInstance(IMUs[cur].sh2_instance, &IMUs[cur].hal, hal_callback, &IMUs[cur]);
-            printf("time to open instance(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
-            sh2_setSensorCallbackInstance(IMUs[cur].sh2_instance, sensor_handler, &IMUs[cur]);
-            printf("time to open instanceand set callback (ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
+            //printf("time to open instance(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
+            //sh2_setSensorCallbackInstance(IMUs[cur].sh2_instance, sensor_handler, &IMUs[cur]);
+            //printf("time to open instanceand set callback (ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
             //printf("open instance and set callback delay: %.7f", to_ms_since_boot(get_absolute_time())- before);
             for (int p = 0; p < POLL_ITERATIONS; p++) {
                 pico_bno08x_service(&IMUs[cur]);
-                printf("open to bno service time(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before);
+                //printf("open to bno service time(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before);
                 sh2_SensorValue_t v;
 
                 if (pico_bno08x_get_sensor_event(&IMUs[cur], &v)) {
-                    printf("open to get sensor event(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
+                    //printf("open to get sensor event(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
                     //printf("IMU %i has an event\n", cur);
                     current_data.time = (to_ms_since_boot(get_absolute_time()) - t0) / 1000.0f;
 
@@ -216,10 +217,10 @@ int main() {
                         break;
                     }
                 }
-                sleep_ms(POLL_DELAY_MS);
+                //sleep_ms(POLL_DELAY_MS);
             }
             //sh2_closeInstance(IMUs[cur].sh2_instance); //close the instance after reading
-            printf("open to close instance time(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before);
+            printf("open to close instance time(ms): %.2f\n", to_ms_since_boot(get_absolute_time()) - before);
         }
     }
 
