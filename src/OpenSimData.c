@@ -27,7 +27,7 @@
 #define SWITCH_INTERVAL_MS 50
 #define POLL_ITERATIONS     5
 #define POLL_DELAY_MS       1
-#define DATA_RATE (1000.0f/POLL_DELAY_MS)
+#define DATA_RATE (1000.0f/60)
 
 typedef struct {
     uint cs;
@@ -110,14 +110,12 @@ void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
 
     if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 2500)) printf("Enabled Quaternion reports for IMU %d", i);
 
-     //sh2_closeInstance(IMUs_h[i].sh2_instance); //close the instance after its generated
     }
    
 }
 void print_data_collection_header() {
     printf("<data_start>rate:%.2f\t\n", DATA_RATE);
 }
-//sh2_openInstance
 typedef struct {
     float time;
     bool has_quat, has_accel, has_gyro;
@@ -220,7 +218,7 @@ int main() {
                 //sleep_ms(POLL_DELAY_MS);
             }
             //sh2_closeInstance(IMUs[cur].sh2_instance); //close the instance after reading
-            printf("open to close instance time(ms): %.2f\n", to_ms_since_boot(get_absolute_time()) - before);
+            //printf("open to close instance time(ms): %.2f\n", to_ms_since_boot(get_absolute_time()) - before);
         }
     }
 
