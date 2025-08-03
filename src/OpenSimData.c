@@ -25,9 +25,9 @@
 #define RESET3_PIN      11
 
 #define SWITCH_INTERVAL_MS 50
-#define POLL_ITERATIONS     5
+#define POLL_ITERATIONS     1
 #define POLL_DELAY_MS       1
-#define DATA_RATE (1000.0f/60)
+#define DATA_RATE (1000.0f/24)
 
 typedef struct {
     uint cs;
@@ -81,22 +81,7 @@ bool check_resp(int i) {
     return false;
 }
 
-bool select_imu(int i) {
-    if (!available[i]) return false;
-    if (cur >= 0) pico_bno08x_destroy(&active);
-    const imu_cfg_t* c = &imus[i];
-    if (!pico_bno08x_init(&active, c->rst, i)) return false;
-    if (!pico_bno08x_begin_spi(&active, SPI_PORT,
-        SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
-        c->cs, c->inten, 3000000)) return false;
 
-    pico_bno08x_enable_report(&active, SH2_ROTATION_VECTOR, 50000);
-    pico_bno08x_enable_report(&active, SH2_ACCELEROMETER, 50000);
-    pico_bno08x_enable_report(&active, SH2_GYROSCOPE_CALIBRATED, 50000);
-
-    cur = i;
-    return true;
-}
 void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
 {
     imu_cfg_t* cfg = &imus[0];
@@ -108,7 +93,7 @@ void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
         SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
         cfg->cs, cfg->inten, 3000000)) printf("Initializing IMU %d SPI\n", i);
 
-    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 2500)) printf("Enabled Quaternion reports for IMU %d", i);
+    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 5000)) printf("Enabled Quaternion reports for IMU %d", i);
 
     }
    
@@ -116,6 +101,7 @@ void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
 void print_data_collection_header() {
     printf("<data_start>rate:%.2f\t\n", DATA_RATE);
 }
+
 typedef struct {
     float time;
     bool has_quat, has_accel, has_gyro;
@@ -146,41 +132,35 @@ int main() {
     float before;
     imu_data_t current_data = {0};
     float now;
+
     while (1) {
-        now = to_ms_since_boot(get_absolute_time());
-        printf("now - last switch %.2f\n", now - last_switch);
-        if (1) {
-            for (int k = 0; k < 3; k++) {
-                int idx = (next + k) % 3;
-                if (available[idx]) {
-                    cur = idx;
-                    next = (idx + 1) % 3;
-                    last_switch = now;
-                    current_data = (imu_data_t){0};
-                    current_data.time = (now - t0) / 1000.0f;
-                    break;
-                }
+        //now = to_ms_since_boot(get_absolute_time());
+        //printf("now - last switch %.2f\n", now - last_switch);
+        
+        for (int k = 0; k < 3; k++) {
+            int idx = (next + k) % 3;
+            if (available[idx]) {
+                cur = idx;
+                next = (idx + 1) % 3;
+                //last_switch = now;
+                current_data = (imu_data_t){0};
+                //current_data.time = (now - t0) / 1000.0f;
+                break;
             }
+            
         }
 
 
         if (cur >= 0) {
             //printf("current IMU is %i\n", cur);
-            //sh2_openInstance(IMUs[cur].sh2_instance, &IMUs[cur].hal, sensor_handler, NULL ); //reopen the instance before servicing
-            before = to_ms_since_boot(get_absolute_time());
-            //sh2_openInstance(IMUs[cur].sh2_instance, &IMUs[cur].hal, hal_callback, &IMUs[cur]);
-            //printf("time to open instance(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
-            //sh2_setSensorCallbackInstance(IMUs[cur].sh2_instance, sensor_handler, &IMUs[cur]);
-            //printf("time to open instanceand set callback (ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
-            //printf("open instance and set callback delay: %.7f", to_ms_since_boot(get_absolute_time())- before);
+            //before = to_ms_since_boot(get_absolute_time());
             for (int p = 0; p < POLL_ITERATIONS; p++) {
                 pico_bno08x_service(&IMUs[cur]);
-                //printf("open to bno service time(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before);
+
                 sh2_SensorValue_t v;
 
                 if (pico_bno08x_get_sensor_event(&IMUs[cur], &v)) {
-                    //printf("open to get sensor event(ms): %.7f\n", to_ms_since_boot(get_absolute_time()) - before); 
-                    //printf("IMU %i has an event\n", cur);
+
                     current_data.time = (to_ms_since_boot(get_absolute_time()) - t0) / 1000.0f;
 
                     switch (v.sensorId) {
