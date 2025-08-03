@@ -93,7 +93,7 @@ void init_imus(Pico_BNO08x_t* IMUs_h, int num_IMUs)
         SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SCK_PIN,
         cfg->cs, cfg->inten, 3000000)) printf("Initializing IMU %d SPI\n", i);
 
-    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 5000)) printf("Enabled Quaternion reports for IMU %d", i);
+    if(pico_bno08x_enable_report(&IMUs_h[i], SH2_ROTATION_VECTOR, 5000)) printf("Enabled Quaternion reports for IMU %d\n", i);
 
     }
    
