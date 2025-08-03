@@ -1,60 +1,95 @@
 import serial
 import time
+import re
 from datetime import datetime
 
+def parse_serial_triplets(
+    port='COM6',
+    baudrate=115200,
+    num_measurements=200,
+    debug=False
+):
+    # Generate timestamped filename
+    timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_file = f"imu_data_{timestamp_str}.sto"
 
-PORT = '/dev/ttyACM0'         # Replace with Pico COM port'COM5' or '/dev/ttyACM0'
-BAUD = 115200
-TIMEOUT = 1.0         # Seconds
+    ser = serial.Serial(port, baudrate, timeout=1)
+    print(f"Listening on {port}... Waiting for <data_start> with rate...")
 
-
-def get_timestamped_filename():
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    return f"IMU_data_{timestamp}.sto"
-
-def wait_for_prompt(ser, prompt="# Waiting for start"):
-    """Waits until the Pico is ready to receive the start command."""
-    print("[INFO] Waiting for device prompt...")
+    # Wait for "<data_start>" and extract rate
     while True:
-        line = ser.readline().decode('utf-8', errors='ignore').strip()
-        if prompt in line:
-            print("[INFO] Device ready. Sending start signal.")
-            return
-        elif line:
-            print(f"[USB] {line}")
+        line = ser.readline().decode('utf-8').strip()
+        if "<data_start>" in line and "rate:" in line:
+            match = re.search(r"rate[: ]+([\d\.]+)", line)
+            if match:
+                rate = float(match.group(1))
+                print(f"Data rate detected: {rate} Hz")
+                break
 
-def main():
-    print(f"[INFO] Connecting to {PORT} at {BAUD} baud...")
-    try:
-        with serial.Serial(PORT, BAUD, timeout=TIMEOUT) as ser:
-            #wait_for_prompt(ser)
+    latest = {}
+    has_new_data = {"scapula_imu": False, "sternum_imu": False, "humerus_imu": False}
+    collected_rows = []
 
-            # Send start
-            ser.write(b"start\n")
+    while len(collected_rows) < num_measurements:
+        try:
+            line = ser.readline().decode('utf-8').strip()
+            if not line:
+                continue
+            if debug:
+                print(f"> {line}")
 
-            filename = get_timestamped_filename()
-            print(f"[INFO] Logging data to: {filename}")
+            try:
+                timestamp_str, label, w, x, y, z = line.split(",")
+                label = label.strip()
+                if label not in has_new_data:
+                    continue
 
-            with open(filename, 'w', encoding='utf-8') as f:
-                while True:
-                    line = ser.readline().decode('utf-8', errors='ignore').strip()
-                    if not line:
-                        continue
+                timestamp = float(timestamp_str)
+                quat = f"{float(w):.6f}, {float(x):.6f}, {float(y):.6f}, {float(z):.6f}"
+                latest[label] = (timestamp, quat)
+                has_new_data[label] = True
 
-                    # Save line to file
-                    f.write(line + '\n')
-                    f.flush()
-                    print(line)  # Optional: show on screen
+                if all(has_new_data.values()):
+                    timestamps = [latest[imu][0] for imu in has_new_data]
+                    row_time = round(sorted(timestamps)[1], 3)  # median
+                    row = {
+                        "time": row_time,
+                        "scapula_imu": latest["scapula_imu"][1],
+                        "sternum_imu": latest["sternum_imu"][1],
+                        "humerus_imu": latest["humerus_imu"][1],
+                    }
+                    collected_rows.append(row)
 
-                    # Stop if the device prints a pause message
-                    if line.startswith("# Data collection paused"):
-                        print("[INFO] Collection stopped by device.")
-                        break
+                    if debug:
+                        print(f"Row {len(collected_rows)} @ {row_time:.3f}")
 
-    except serial.SerialException as e:
-        print(f"[ERROR] Could not open serial port {PORT}: {e}")
-    except KeyboardInterrupt:
-        print("\n[INFO] Interrupted by user. Exiting.")
+                    for imu in has_new_data:
+                        has_new_data[imu] = False
 
+            except ValueError:
+                if debug:
+                    print(f"⚠️ Skipping invalid line: {line}")
+
+        except KeyboardInterrupt:
+            print("⏹ Interrupted by user.")
+            break
+
+    ser.close()
+
+    # Save to file
+    with open(output_file, "w") as f:
+        f.write(f"DataRate={rate:.2f}\n")
+        f.write("DataType=Quaternion\n")
+        f.write("version=3\n")
+        f.write("OpenSimVersion=4.5\n")
+        f.write("endheader\n")
+        f.write("time\tscapula_imu\tsternum_imu\thumerus_imu\n")
+
+        for row in collected_rows:
+            f.write(f"{row['time']:.3f}\t{row['scapula_imu']}\t{row['sternum_imu']}\t{row['humerus_imu']}\n")
+
+    print(f"Saved {len(collected_rows)} synchronized rows to '{output_file}'.")
+
+# Run the function
 if __name__ == "__main__":
-    main()
+    parse_serial_triplets(debug=False)
