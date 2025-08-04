@@ -10,19 +10,19 @@
 #define SPI_SCK_PIN     18
 
 // IMU0 Pins
-#define CS1_PIN         17
-#define INT1_PIN        20
-#define RESET1_PIN      15
+#define CS0_PIN         17
+#define INT0_PIN        20
+#define RESET0_PIN      15
 
 // IMU1 Pins
-#define CS2_PIN         13
-#define INT2_PIN        12
-#define RESET2_PIN      14
+#define CS1_PIN         13
+#define INT1_PIN        12
+#define RESET1_PIN      14
 
 // IMU2 Pins
-#define CS3_PIN         9
-#define INT3_PIN        10
-#define RESET3_PIN      11
+#define CS2_PIN         9
+#define INT2_PIN        10
+#define RESET2_PIN      11
 
 #define SWITCH_INTERVAL_MS 50
 #define POLL_ITERATIONS     1
@@ -38,9 +38,9 @@ typedef struct {
 } imu_cfg_t;
 
 static const imu_cfg_t imus[3] = {
-    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU0", "sternum_imu"},
-    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU1", "scapula_imu"},
-    {CS3_PIN, INT3_PIN, RESET3_PIN, "IMU2", "humerus_imu"}
+    {CS0_PIN, INT0_PIN, RESET0_PIN, "IMU0", "sternum_imu"},
+    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU1", "scapula_imu"},
+    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU2", "humerus_imu"}
 };
 
 Pico_BNO08x_t active;
