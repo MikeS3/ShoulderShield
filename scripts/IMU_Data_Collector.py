@@ -68,7 +68,7 @@ def parse_serial_triplets(
 
             except ValueError:
                 if debug:
-                    print(f"⚠️ Skipping invalid line: {line}")
+                    print(f"Skipping invalid line: {line}")
 
         except KeyboardInterrupt:
             print("⏹ Interrupted by user.")

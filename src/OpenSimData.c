@@ -27,7 +27,7 @@
 #define SWITCH_INTERVAL_MS 50
 #define POLL_ITERATIONS     1
 #define POLL_DELAY_MS       1
-#define DATA_RATE (1000.0f/24)
+#define DATA_RATE (1000.0f/36)
 
 typedef struct {
     uint cs;
@@ -38,8 +38,8 @@ typedef struct {
 } imu_cfg_t;
 
 static const imu_cfg_t imus[3] = {
-    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU0", "scapula_imu"},
-    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU1", "sternum_imu"},
+    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU0", "sternum_imu"},
+    {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU1", "scapula_imu"},
     {CS3_PIN, INT3_PIN, RESET3_PIN, "IMU2", "humerus_imu"}
 };
 
