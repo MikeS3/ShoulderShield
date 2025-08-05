@@ -505,6 +505,23 @@ int sh2_getProdIdsInstance(sh2_Instance_t* pInstance, sh2_ProductIds_t *prodIds)
  */
 int sh2_getSensorEventInstance(sh2_Instance_t* pInstance, sh2_SensorEvent_t* pEvent);
 
+/**
+ * @brief Perform a tare operation on one or more axes.
+ *
+ * @param  axes Bit mask specifying which axes should be tared.
+ * @param  basis Which rotation vector to use as the basis for Tare adjustment.
+ * @return SH2_OK (0), on success.  Negative value from sh2_err.h on error.
+ */
+int sh2_setTareNowInstance(sh2_Instance_t* pInstance, uint8_t axes,    // SH2_TARE_X | SH2_TARE_Y | SH2_TARE_Z
+                   sh2_TareBasis_t basis);
+
+/**
+ * @brief Clears the previously applied tare operation.
+ *
+ * @return SH2_OK \n");
+ */
+int sh2_clearTareInstance(sh2_Instance_t* pInstance);
+
 
 /***************************************************************************************
  * Public API

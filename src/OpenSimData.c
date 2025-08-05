@@ -38,8 +38,8 @@ typedef struct {
 } imu_cfg_t;
 
 static const imu_cfg_t imus[3] = {
-    {CS0_PIN, INT0_PIN, RESET0_PIN, "IMU0", "sternum_imu"},
-    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU1", "scapula_imu"},
+    {CS0_PIN, INT0_PIN, RESET0_PIN, "IMU0", "scapula_imu"},
+    {CS1_PIN, INT1_PIN, RESET1_PIN, "IMU1", "sternum_imu"},
     {CS2_PIN, INT2_PIN, RESET2_PIN, "IMU2", "humerus_imu"}
 };
 
@@ -74,9 +74,9 @@ void init_hw() {
 
 bool check_resp(int i) {
     uint8_t buf[4] = {0};
-    gpio_put(imus[i].cs, 0); sleep_us(5);
+    gpio_put(imus[i].cs, 0); sleep_ms(10);
     spi_read_blocking(SPI_PORT, 0, buf, 4);
-    sleep_us(5); gpio_put(imus[i].cs, 1);
+    sleep_ms(10); gpio_put(imus[i].cs, 1);
     for (int j = 0; j < 4; j++) if (buf[j] != 0x00 && buf[j] != 0xFF) return true;
     return false;
 }

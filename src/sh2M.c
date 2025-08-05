@@ -1763,7 +1763,56 @@ int sh2_getProdIdsInstance(sh2_Instance_t* pInstance, sh2_ProductIds_t *prodIds)
     // Full implementation would handle the async response
     return sendCtrl(pInstance, (uint8_t *)&req, sizeof(req));
 }
+/**
+ * @brief Perform a tare operation on one or more axes.
+ *
+ * @param  axes Bit mask specifying which axes should be tared.
+ * @param  basis Which rotation vector to use as the basis for Tare adjustment.
+ * @return SH2_OK (0), on success.  Negative value from sh2_err.h on error.
+ */
+int sh2_setTareNowInstance(sh2_Instance_t* pInstance, uint8_t axes,    // SH2_TARE_X | SH2_TARE_Y | SH2_TARE_Z
+                   sh2_TareBasis_t basis)
+{
+    sh2_t *pSh2 = &_sh2;
 
+    if (pSh2->pShtp == 0) {
+        return SH2_ERR;  // sh2 API isn't open
+    }
+
+    // clear opData
+    memset(&pSh2->opData, 0, sizeof(sh2_OpData_t));
+    
+    
+    pSh2->opData.sendCmd.req.command = SH2_CMD_TARE;
+    pSh2->opData.sendCmd.req.p[0] = SH2_TARE_TARE_NOW;
+    pSh2->opData.sendCmd.req.p[1] = axes;
+    pSh2->opData.sendCmd.req.p[2] = basis;
+
+    return opProcess(pSh2, &sendCmdOp);
+}
+
+/**
+ * @brief Clears the previously applied tare operation.
+ *
+ * @return SH2_OK \n");
+ */
+int sh2_clearTareInstance(sh2_Instance_t* pInstance)
+{
+    sh2_t *pSh2 = &_sh2;
+
+    if (pSh2->pShtp == 0) {
+        return SH2_ERR;  // sh2 API isn't open
+    }
+
+    // clear opData
+    memset(&pSh2->opData, 0, sizeof(sh2_OpData_t));
+    
+    
+    pSh2->opData.sendCmd.req.command = SH2_CMD_TARE;
+    pSh2->opData.sendCmd.req.p[0] = SH2_TARE_SET_REORIENTATION;
+
+    return opProcess(pSh2, &sendCmdOp);
+}
 
 // ------------------------------------------------------------------------
 // Set Cal Config
