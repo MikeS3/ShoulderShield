@@ -3,6 +3,7 @@ import time
 import re
 from datetime import datetime
 
+#Change port to the serial port the Pico is connected to
 def parse_serial_triplets(
     port='COM6',
     baudrate=115200,
