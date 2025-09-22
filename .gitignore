@@ -1,2 +1,4 @@
 /build/
+/scripts/data/
 /lib/pico-sdk/.git/
+.vscode/

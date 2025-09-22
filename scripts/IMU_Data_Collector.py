@@ -2,17 +2,28 @@ import serial
 import time
 import re
 from datetime import datetime
+import os
 
-#Change port to the serial port the Pico is connected to
+# Change port to the serial port the Pico is connected to
 def parse_serial_triplets(
     port='COM6',
     baudrate=115200,
     num_measurements=200,
     debug=False
 ):
-    # Generate timestamped filename
+
+    # Define the directory to save data
+    data_dir = "data"
+
+    # Create the directory if it doesn't exist
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+        print(f"Created directory: '{data_dir}'")
+
+    # Generate timestamped filename and join it with the directory path
     timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_file = f"imu_data_{timestamp_str}.sto"
+    filename = f"imu_data_{timestamp_str}.sto"
+    output_file = os.path.join(data_dir, filename)
 
     ser = serial.Serial(port, baudrate, timeout=1)
     print(f"Listening on {port}... Waiting for <data_start> with rate...")
@@ -52,7 +63,7 @@ def parse_serial_triplets(
 
                 if all(has_new_data.values()):
                     timestamps = [latest[imu][0] for imu in has_new_data]
-                    row_time = round(sorted(timestamps)[1], 3)  # median
+                    row_time = round(sorted(timestamps)[1], 3) # median
                     row = {
                         "time": row_time,
                         "scapula_imu": latest["scapula_imu"][1],

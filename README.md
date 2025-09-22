@@ -57,7 +57,6 @@ cmake -DPICO_BOARD=pico2_w ..
 
 Finally build with
  ```bash 
-make
+make shoulder_shield
 ```
 The generated uf2 files will appear in a directory titled src
-make bno08x_example
